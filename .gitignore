@@ -1,0 +1,9 @@
+env/
+logs/
+sites/*/private/
+sites/*/public/files/
+sites/*/locks/
+sites/assets/
+*.pyc
+__pycache__/
+.DS_Store
