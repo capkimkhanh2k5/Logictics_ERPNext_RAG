@@ -522,3 +522,251 @@ def _get_doc_status_info(doctype, docname):
         "status": status,
         "completed": completed,
     }
+import frappe
+import requests
+import random
+import urllib.parse
+
+OFFLINE_LOCATION_COORDINATES = {
+    # Texas / US Inland
+    "dell factory, texas": [30.4515, -97.6664],
+    "dell factory": [30.4515, -97.6664],
+    "highway 45 to new york": [36.1627, -86.7816],
+    "highway 45": [32.7767, -96.7970],
+    "texas": [31.9686, -99.9018],
+    "port of new york": [40.6840, -74.0400],
+    "new york": [40.7128, -74.0060],
+    "american": [37.0902, -95.7129],
+    "american port": [40.7128, -74.0060],
+    "us port": [40.7128, -74.0060],
+
+    # Ocean / Maritime
+    "pacific ocean": [20.0, -160.0],
+    "ocean": [20.0, -160.0],
+
+    # Vietnam Ports & Locations
+    "cat lai port, ho chi minh": [10.7600, 106.7900],
+    "cat lai port": [10.7600, 106.7900],
+    "vn port": [10.7600, 106.7900],
+    "cap khanhs warehouse": [10.8231, 106.6297],
+    "ck store": [10.8231, 106.6297],
+    "ho chi minh city": [10.8231, 106.6297],
+    "tp. hồ chí minh": [10.8231, 106.6297],
+    "ho chi minh": [10.8231, 106.6297],
+    "hanoi": [21.0285, 105.8542],
+    "hà nội": [21.0285, 105.8542],
+    "da nang": [16.0544, 108.2022],
+    "đà nẵng": [16.0544, 108.2022],
+    "hai phong": [20.8449, 106.6881],
+    "hải phòng": [20.8449, 106.6881],
+    "vietnam": [14.0583, 108.2772],
+
+    # International Hubs
+    "singapore": [1.3521, 103.8198],
+    "tokyo": [35.6762, 139.6503],
+    "shanghai": [31.2304, 121.4737],
+}
+
+def geocode_location(city, country):
+    if not city and not country:
+        return None
+    query = f"{city or ''}, {country or ''}".strip(", ")
+    
+    cache_key = f"geocache_{query.lower()}"
+    try:
+        cached = frappe.cache().get_value(cache_key)
+        if cached:
+            return cached
+    except Exception:
+        pass
+
+    # Check offline coordinate database first for container / network isolation resilience
+    q_lower = query.lower().strip()
+    if q_lower in OFFLINE_LOCATION_COORDINATES:
+        coords = OFFLINE_LOCATION_COORDINATES[q_lower]
+        try:
+            frappe.cache().set_value(cache_key, coords, expires_in_sec=86400)
+        except Exception:
+            pass
+        return coords
+
+    for key, coords in OFFLINE_LOCATION_COORDINATES.items():
+        if key in q_lower or q_lower in key:
+            try:
+                frappe.cache().set_value(cache_key, coords, expires_in_sec=86400)
+            except Exception:
+                pass
+            return coords
+
+    url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(query)}&format=json&limit=1"
+    headers = {"User-Agent": "ERPNext-LogisticsWizard-App"}
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        if r.status_code == 200 and r.json():
+            data = r.json()[0]
+            result = [float(data['lat']), float(data['lon'])]
+            try:
+                frappe.cache().set_value(cache_key, result, expires_in_sec=86400)
+            except Exception:
+                pass
+            return result
+    except Exception as e:
+        frappe.log_error(title="Geocoding Error", message=f"Query: {query}, Error: {str(e)}")
+    return None
+
+def get_maritime_waypoints(origin, dest):
+    o_lat, o_lng = origin
+    d_lat, d_lng = dest
+    waypoints = [origin]
+    
+    if (o_lng > 100 and d_lng < -70) or (o_lng < -70 and d_lng > 100):
+        waypoints.append([20.0, -160.0])
+    elif o_lng > 70 and d_lng < 50:
+        waypoints.append([5.0, 80.0])
+        if d_lat > 20:
+            waypoints.append([12.0, 43.0])
+            waypoints.append([27.0, 34.0])
+    
+    waypoints.append(dest)
+    return waypoints
+
+@frappe.whitelist(allow_guest=True)
+def get_active_shipments():
+    """Returns a list of Purchase Orders that are currently in transit."""
+    pos = frappe.get_all(
+        "Purchase Order",
+        filters={
+            "docstatus": 1,
+            "status": ["not in", ["Draft", "Completed", "Closed", "Received", "Cancelled", "Giao hàng thành công"]]
+        },
+        fields=["name", "status", "transaction_date", "supplier_name"]
+    )
+    return {"status": "success", "data": pos}
+
+@frappe.whitelist(allow_guest=True)
+def get_shipment_tracking(docname=None, doctype=None):
+    if not docname or not doctype:
+        return {"status": "error", "message": "Vui lòng chọn một đơn hàng."}
+
+    if not frappe.db.exists(doctype, docname):
+        return {"status": "error", "message": "Không tìm thấy chứng từ."}
+        
+    doc = frappe.get_doc(doctype, docname)
+    docstatus = doc.docstatus
+    status = getattr(doc, 'status', 'Draft')
+    
+    # Check if there is a Shipment Tracking document for this Purchase Order
+    shipment_doc = None
+    if doctype == "Purchase Order":
+        shipment_name = frappe.db.get_value("Shipment Tracking", {"purchase_order": docname}, "name")
+        if shipment_name:
+            shipment_doc = frappe.get_doc("Shipment Tracking", shipment_name)
+    elif doctype == "Shipment Tracking":
+        shipment_doc = doc
+        
+    method = 'Road'
+    if shipment_doc and hasattr(shipment_doc, 'shipping_method') and shipment_doc.shipping_method:
+        method = shipment_doc.shipping_method
+    elif hasattr(doc, 'shipping_method') and doc.shipping_method:
+        method = doc.shipping_method
+    elif hasattr(doc, 'ship_via') and doc.ship_via:
+        method = doc.ship_via
+    else:
+        method = random.choice(['Air', 'Ocean', 'Road'])
+
+    origin_city, origin_country = "Hanoi", "Vietnam"
+    dest_city, dest_country = "Ho Chi Minh City", "Vietnam"
+    origin_str, dest_str = "Hà Nội", "TP. Hồ Chí Minh"
+
+    if doctype == "Purchase Order":
+        if doc.supplier_address:
+            addr = frappe.get_doc("Address", doc.supplier_address)
+            if addr.city: origin_city = addr.city
+            if addr.country: origin_country = addr.country
+            origin_str = f"{origin_city}, {origin_country}"
+            
+        if doc.shipping_address:
+            addr = frappe.get_doc("Address", doc.shipping_address)
+            if addr.city: dest_city = addr.city
+            if addr.country: dest_country = addr.country
+            dest_str = f"{dest_city}, {dest_country}"
+        elif doc.billing_address:
+            addr = frappe.get_doc("Address", doc.billing_address)
+            if addr.city: dest_city = addr.city
+            if addr.country: dest_country = addr.country
+            dest_str = f"{dest_city}, {dest_country}"
+
+    route_coords = []
+    
+    # If we have a Shipment Tracking doc with transit_route, use those locations!
+    if shipment_doc and shipment_doc.transit_route:
+        for row in shipment_doc.transit_route:
+            if row.location:
+                # Some naive geocoding lookup
+                loc_coords = geocode_location(row.location, "")
+                if loc_coords:
+                    route_coords.append(loc_coords)
+
+    if not route_coords:
+        origin_coords = geocode_location(origin_city, origin_country) or [21.0285, 105.8542]
+        dest_coords = geocode_location(dest_city, dest_country) or [10.8231, 106.6297]
+
+        if method == 'Ocean':
+            route_coords = get_maritime_waypoints(origin_coords, dest_coords)
+        else:
+            route_coords = [origin_coords, dest_coords]
+
+    progress = 0.5
+    status_text = "Đang vận chuyển (In Transit)"
+    
+    if method == 'Air':
+        current_location = "Đang bay qua không phận Quốc tế"
+    elif method == 'Ocean':
+        current_location = "Đang trên biển (Maritime Transit)"
+    else:
+        current_location = "Đang trên tuyến đường bộ"
+
+    if docstatus == 1 and status in ['Completed', 'Received', 'Closed', 'Giao hàng thành công', 'Delivered']:
+        progress = 1.0
+        status_text = "Đã giao hàng thành công"
+        current_location = dest_str
+        if shipment_doc and shipment_doc.transit_route:
+            current_location = shipment_doc.transit_route[-1].location
+    elif docstatus == 2 or (docstatus == 0):
+        progress = 0.0
+        status_text = "Chờ xử lý"
+        current_location = origin_str
+        if shipment_doc and shipment_doc.transit_route:
+            current_location = shipment_doc.transit_route[0].location
+
+    current_route = []
+    if progress == 0.0:
+        current_route = [route_coords[0]]
+    elif progress == 1.0:
+        current_route = route_coords
+    else:
+        # If we have custom waypoints, include all route coordinates in sequence
+        # and set the current location
+        if len(route_coords) > 2:
+            current_route = route_coords
+            if shipment_doc and shipment_doc.transit_route:
+                current_location = shipment_doc.transit_route[-2].location if len(shipment_doc.transit_route) > 1 else current_location
+        else:
+            mid = [
+                (route_coords[0][0] + route_coords[-1][0]) / 2,
+                (route_coords[0][1] + route_coords[-1][1]) / 2
+            ]
+            current_route = [route_coords[0], mid]
+
+    return {
+        "status": "success",
+        "data": {
+            "method": method,
+            "route": current_route,
+            "full_route": route_coords,
+            "progress": progress,
+            "status_text": status_text,
+            "current_location": current_location,
+            "docname": docname
+        }
+    }
