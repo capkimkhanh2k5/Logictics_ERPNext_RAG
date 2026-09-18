@@ -1,0 +1,8 @@
+{
+    "js/smart_workflow_widget.bundle.js": [
+        "logistics_wizard/public/js/smart_workflow_widget.js"
+    ],
+    "css/smart_workflow_widget.bundle.css": [
+        "logistics_wizard/public/css/smart_workflow_widget.css"
+    ]
+}
