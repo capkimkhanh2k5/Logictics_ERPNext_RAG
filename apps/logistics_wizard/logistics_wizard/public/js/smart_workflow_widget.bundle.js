@@ -267,7 +267,7 @@
             $('#lw-map-info-text').html(infoHtml);
             
             setTimeout(() => { shipmentMap.invalidateSize(); }, 300);
-        });
+        
     }
     function reset_workflow_ui() {
         WORKFLOW_STEPS.forEach(step => {
