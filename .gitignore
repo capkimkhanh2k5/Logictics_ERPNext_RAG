@@ -7,3 +7,6 @@ sites/assets/
 *.pyc
 __pycache__/
 .DS_Store
+.agents/
+
+.env

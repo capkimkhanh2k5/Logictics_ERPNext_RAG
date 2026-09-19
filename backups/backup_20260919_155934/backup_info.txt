@@ -1,0 +1,6 @@
+Bản sao lưu: backup_20260919_155934
+Thời gian tạo: Sat Sep 19 15:59:35 +07 2026
+Site: logistics.local
+Database dump: database.sql.gz (840K)
+Tệp công khai: files.tar ( 12K)
+Tệp riêng tư: private-files.tar ( 12K)

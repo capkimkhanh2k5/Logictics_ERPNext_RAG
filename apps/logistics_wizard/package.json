@@ -1,0 +1,8 @@
+{
+  "name": "logistics_wizard",
+  "version": "0.0.1",
+  "description": "Logistics Wizard",
+  "main": "index.js",
+  "author": "Cap Kim Khanh",
+  "license": "MIT"
+}
