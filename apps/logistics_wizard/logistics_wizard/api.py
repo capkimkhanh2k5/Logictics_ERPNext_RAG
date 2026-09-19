@@ -528,6 +528,28 @@ import random
 import urllib.parse
 
 OFFLINE_LOCATION_COORDINATES = {
+    # Apple / California / US West Coast
+    "apple park, cupertino": [37.3346, -122.0090],
+    "apple park": [37.3346, -122.0090],
+    "apple inc.": [37.3346, -122.0090],
+    "apple warehouse, cupertino": [37.3346, -122.0090],
+    "cupertino": [37.3318, -122.0312],
+    "cupertino, california": [37.3318, -122.0312],
+    "san francisco": [37.7749, -122.4194],
+    "san francisco airport": [37.6213, -122.3790],
+    "sfo airport": [37.6213, -122.3790],
+    "sfo": [37.6213, -122.3790],
+    "port of long beach": [33.7701, -118.1937],
+    "long beach port": [33.7701, -118.1937],
+    "long beach": [33.7701, -118.1937],
+    "port of los angeles": [33.7432, -118.2673],
+    "la port": [33.7432, -118.2673],
+    "port of oakland": [37.7952, -122.2792],
+    "oakland": [37.7952, -122.2792],
+    "california": [36.7783, -119.4179],
+    "united states": [37.0902, -95.7129],
+    "usa": [37.0902, -95.7129],
+
     # Texas / US Inland
     "dell factory, texas": [30.4515, -97.6664],
     "dell factory": [30.4515, -97.6664],
@@ -540,16 +562,34 @@ OFFLINE_LOCATION_COORDINATES = {
     "american port": [40.7128, -74.0060],
     "us port": [40.7128, -74.0060],
 
-    # Ocean / Maritime
+    # Ocean / Maritime & Air Corridors
     "pacific ocean": [20.0, -160.0],
     "ocean": [20.0, -160.0],
+    "hawaii transit hub": [21.3069, -157.8583],
+    "mid-pacific ocean": [20.0, -165.0],
+    "guam maritime corridor": [13.4443, 144.7937],
+    "luzon strait": [20.0, 121.0],
+    "east sea": [12.0, 114.0],
+    "south china sea": [12.0, 114.0],
+    "pacific flight corridor": [28.0, -165.0],
+    "tokyo narita airspace": [35.7720, 140.3929],
 
-    # Vietnam Ports & Locations
+    # Vietnam Ports & Gateways
     "cat lai port, ho chi minh": [10.7600, 106.7900],
     "cat lai port": [10.7600, 106.7900],
     "vn port": [10.7600, 106.7900],
     "cap khanhs warehouse": [10.8231, 106.6297],
+    "cap khanh logistics warehouse": [10.8231, 106.6297],
+    "cap khanh logistics": [10.8231, 106.6297],
+    "stores - ck": [10.8231, 106.6297],
     "ck store": [10.8231, 106.6297],
+    "tan son nhat airport": [10.8188, 106.6520],
+    "tan son nhat": [10.8188, 106.6520],
+    "sgn airport": [10.8188, 106.6520],
+    "sgn": [10.8188, 106.6520],
+    "noi bai airport": [21.2212, 105.8072],
+    "noi bai": [21.2212, 105.8072],
+    "han airport": [21.2212, 105.8072],
     "ho chi minh city": [10.8231, 106.6297],
     "tp. hồ chí minh": [10.8231, 106.6297],
     "ho chi minh": [10.8231, 106.6297],
@@ -557,6 +597,7 @@ OFFLINE_LOCATION_COORDINATES = {
     "hà nội": [21.0285, 105.8542],
     "da nang": [16.0544, 108.2022],
     "đà nẵng": [16.0544, 108.2022],
+    "hai phong port": [20.8651, 106.7093],
     "hai phong": [20.8449, 106.6881],
     "hải phòng": [20.8449, 106.6881],
     "vietnam": [14.0583, 108.2772],
@@ -619,13 +660,39 @@ def get_maritime_waypoints(origin, dest):
     d_lat, d_lng = dest
     waypoints = [origin]
     
-    if (o_lng > 100 and d_lng < -70) or (o_lng < -70 and d_lng > 100):
-        waypoints.append([20.0, -160.0])
+    # Trans-Pacific route (US West Coast <-> Vietnam / SE Asia)
+    if (o_lng < -70 and d_lng > 100) or (o_lng > 100 and d_lng < -70):
+        # US -> Hawaii -> Guam -> Luzon Strait / East Sea -> Vietnam
+        if o_lng < 0: # Origin in US, Dest in Asia
+            waypoints.append([21.3069, -157.8583])  # Hawaii Transit Hub
+            waypoints.append([13.4443, 144.7937])   # Guam Maritime Corridor
+            waypoints.append([16.0, 118.0])         # East Sea / South China Sea
+        else: # Origin in Asia, Dest in US
+            waypoints.append([16.0, 118.0])
+            waypoints.append([13.4443, 144.7937])
+            waypoints.append([21.3069, -157.8583])
     elif o_lng > 70 and d_lng < 50:
         waypoints.append([5.0, 80.0])
         if d_lat > 20:
             waypoints.append([12.0, 43.0])
             waypoints.append([27.0, 34.0])
+    
+    waypoints.append(dest)
+    return waypoints
+
+def get_air_waypoints(origin, dest):
+    o_lat, o_lng = origin
+    d_lat, d_lng = dest
+    waypoints = [origin]
+    
+    # Trans-Pacific Air corridor (US <-> Vietnam)
+    if (o_lng < -70 and d_lng > 100) or (o_lng > 100 and d_lng < -70):
+        if o_lng < 0:
+            waypoints.append([35.0, -165.0])       # Pacific Flight Corridor
+            waypoints.append([35.7720, 140.3929])  # Tokyo Narita Airspace
+        else:
+            waypoints.append([35.7720, 140.3929])
+            waypoints.append([35.0, -165.0])
     
     waypoints.append(dest)
     return waypoints
@@ -713,6 +780,8 @@ def get_shipment_tracking(docname=None, doctype=None):
 
         if method == 'Ocean':
             route_coords = get_maritime_waypoints(origin_coords, dest_coords)
+        elif method == 'Air':
+            route_coords = get_air_waypoints(origin_coords, dest_coords)
         else:
             route_coords = [origin_coords, dest_coords]
 

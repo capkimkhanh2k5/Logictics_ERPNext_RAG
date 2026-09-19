@@ -6,7 +6,7 @@ Mật khẩu Root MariaDB: 123456
 Phiên bản ERPNext & Frappe: version-15 (15.121.2 và 15.120.1)
 
 # TK ADMIN 
-TK: administrator
+TK: administrator / admin
 MK: admin
 
 # TK CapKhanhs

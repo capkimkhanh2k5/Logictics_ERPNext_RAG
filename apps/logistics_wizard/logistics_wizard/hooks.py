@@ -5,8 +5,14 @@ app_description = "Import-Export Workflow Widget and AfterShip API integration"
 app_email = "khanh@logistics.local"
 app_license = "mit"
 
-app_include_js = "smart_workflow_widget.bundle.js"
-app_include_css = "smart_workflow_widget.bundle.css"
+app_include_js = [
+    "leaflet.bundle.js",
+    "smart_workflow_widget.bundle.js"
+]
+app_include_css = [
+    "leaflet.bundle.css",
+    "smart_workflow_widget.bundle.css"
+]
 
 # Overriding Whitelisted methods
 override_whitelisted_methods = {
