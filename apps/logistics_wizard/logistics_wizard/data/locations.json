@@ -1,0 +1,1117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LogisticsWizardLocations",
+  "description": "Authoritative Single Source of Truth for Logistics Stations, Ports, Airports, and Navigation Corridors",
+  "version": "1.0.0",
+  "updated_at": "2026-09-20T08:00:00Z",
+  "locations": {
+    "apple_park_cupertino": {
+      "id": "apple_park_cupertino",
+      "name": "Apple Park (Global Headquarters)",
+      "name_vi": "Trụ sở chính Apple Park, Cupertino",
+      "type": "facility",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "CA",
+      "coordinates": {
+        "latitude": 37.3346,
+        "longitude": -122.009
+      },
+      "codes": {
+        "un_locode": null,
+        "iata": null,
+        "icao": null,
+        "wpi_id": null,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "apple park, cupertino",
+        "apple park",
+        "apple inc.",
+        "apple inc",
+        "apple warehouse, cupertino",
+        "1 apple park way, cupertino",
+        "cupertino",
+        "cupertino, california"
+      ],
+      "reference": {
+        "authority": "OpenStreetMap Node 5410972242 / USGS GNIS ID 2410291",
+        "benchmark_coordinates": [
+          37.334644,
+          -122.008972
+        ],
+        "precision_meters": 5
+      }
+    },
+    "port_of_long_beach": {
+      "id": "port_of_long_beach",
+      "name": "Port of Long Beach",
+      "name_vi": "Cảng Long Beach (Bờ Tây Hoa Kỳ)",
+      "type": "seaport",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "CA",
+      "coordinates": {
+        "latitude": 33.7542,
+        "longitude": -118.2165
+      },
+      "codes": {
+        "un_locode": "USLGB",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 52180,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "port of long beach",
+        "long beach port",
+        "long beach",
+        "long beach, california",
+        "uslgb"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #52180 / UN/CEFACT UN/LOCODE USLGB",
+        "benchmark_coordinates": [
+          33.754185,
+          -118.216458
+        ],
+        "precision_meters": 5
+      }
+    },
+    "port_of_los_angeles": {
+      "id": "port_of_los_angeles",
+      "name": "Port of Los Angeles",
+      "name_vi": "Cảng Los Angeles (San Pedro Bay)",
+      "type": "seaport",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "CA",
+      "coordinates": {
+        "latitude": 33.7395,
+        "longitude": -118.261
+      },
+      "codes": {
+        "un_locode": "USLAX",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 52160,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "port of los angeles",
+        "los angeles port",
+        "la port",
+        "port of la",
+        "san pedro port",
+        "uslax"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #52160 / UN/CEFACT UN/LOCODE USLAX",
+        "benchmark_coordinates": [
+          33.7395,
+          -118.261
+        ],
+        "precision_meters": 10
+      }
+    },
+    "san_francisco_airport": {
+      "id": "san_francisco_airport",
+      "name": "San Francisco International Airport",
+      "name_vi": "Sân bay Quốc tế San Francisco",
+      "type": "airport",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "CA",
+      "coordinates": {
+        "latitude": 37.619,
+        "longitude": -122.375
+      },
+      "codes": {
+        "un_locode": "USSFO",
+        "iata": "SFO",
+        "icao": "KSFO",
+        "wpi_id": null,
+        "ourairports_id": 3878
+      },
+      "aliases": [
+        "san francisco international airport",
+        "san francisco airport",
+        "sfo airport",
+        "sfo",
+        "ksfo"
+      ],
+      "reference": {
+        "authority": "OurAirports ID 3878 / FAA Airport Reference Point KSFO",
+        "benchmark_coordinates": [
+          37.619,
+          -122.375
+        ],
+        "precision_meters": 500
+      }
+    },
+    "cat_lai_port": {
+      "id": "cat_lai_port",
+      "name": "Tan Cang - Cat Lai Port",
+      "name_vi": "Cảng Tân Cảng Cát Lái (TP. Hồ Chí Minh)",
+      "type": "seaport",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "SG",
+      "coordinates": {
+        "latitude": 10.7626,
+        "longitude": 106.7898
+      },
+      "codes": {
+        "un_locode": "VNCLI",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 57370,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "cat lai port, ho chi minh",
+        "cat lai port",
+        "cảng cát lái",
+        "tân cảng cát lái",
+        "vncli",
+        "vnsgn port"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #57370 / UN/CEFACT UN/LOCODE VNCLI",
+        "benchmark_coordinates": [
+          10.7626,
+          106.7898
+        ],
+        "precision_meters": 10
+      }
+    },
+    "hai_phong_port": {
+      "id": "hai_phong_port",
+      "name": "Port of Hai Phong (Dinh Vu / Chua Ve)",
+      "name_vi": "Cảng Hải Phòng (Khu bến Đình Vũ / Chùa Vẽ)",
+      "type": "seaport",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "HP",
+      "coordinates": {
+        "latitude": 20.8656,
+        "longitude": 106.762
+      },
+      "codes": {
+        "un_locode": "VNHPH",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 57240,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "hai phong port",
+        "cảng hải phòng",
+        "dinh vu port",
+        "vnhph"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #57240 / UN/CEFACT UN/LOCODE VNHPH",
+        "benchmark_coordinates": [
+          20.8656,
+          106.762
+        ],
+        "precision_meters": 10
+      }
+    },
+    "tan_son_nhat_airport": {
+      "id": "tan_son_nhat_airport",
+      "name": "Tan Son Nhat International Airport",
+      "name_vi": "Sân bay Quốc tế Tân Sơn Nhất",
+      "type": "airport",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "SG",
+      "coordinates": {
+        "latitude": 10.8188,
+        "longitude": 106.652
+      },
+      "codes": {
+        "un_locode": "VNSGN",
+        "iata": "SGN",
+        "icao": "VVTS",
+        "wpi_id": null,
+        "ourairports_id": 26724
+      },
+      "aliases": [
+        "tan son nhat airport",
+        "tan son nhat",
+        "sân bay tân sơn nhất",
+        "sgn airport",
+        "sgn",
+        "vvts"
+      ],
+      "reference": {
+        "authority": "OurAirports ID 26724 / CAAV AIP VVTS",
+        "benchmark_coordinates": [
+          10.81879997,
+          106.65199852
+        ],
+        "precision_meters": 10
+      }
+    },
+    "noi_bai_airport": {
+      "id": "noi_bai_airport",
+      "name": "Noi Bai International Airport",
+      "name_vi": "Sân bay Quốc tế Nội Bài",
+      "type": "airport",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "HN",
+      "coordinates": {
+        "latitude": 21.2212,
+        "longitude": 105.8072
+      },
+      "codes": {
+        "un_locode": "VNHAN",
+        "iata": "HAN",
+        "icao": "VVNB",
+        "wpi_id": null,
+        "ourairports_id": 26710
+      },
+      "aliases": [
+        "noi bai airport",
+        "noi bai",
+        "sân bay nội bài",
+        "han airport",
+        "han",
+        "vvnb"
+      ],
+      "reference": {
+        "authority": "OurAirports ID 26710 / CAAV AIP VVNB",
+        "benchmark_coordinates": [
+          21.22120094,
+          105.8069992
+        ],
+        "precision_meters": 25
+      }
+    },
+    "cap_khanh_warehouse": {
+      "id": "cap_khanh_warehouse",
+      "name": "Cap Khanh Logistics Da Nang Warehouse (Near DUT)",
+      "name_vi": "Kho bãi Logistics Cáp Kim Khánh Đà Nẵng (Gần ĐH Bách Khoa)",
+      "type": "facility",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "DN",
+      "coordinates": {
+        "latitude": 16.0765,
+        "longitude": 108.151
+      },
+      "codes": {
+        "un_locode": null,
+        "iata": null,
+        "icao": null,
+        "wpi_id": null,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "cap khanhs warehouse",
+        "cap khanh logistics warehouse",
+        "cap khanh logistics",
+        "stores - ck",
+        "ck store",
+        "kho cap khanh",
+        "kho cáp kim khánh",
+        "kho cap khanh da nang",
+        "kho cáp kim khánh đà nẵng",
+        "đà nẵng",
+        "da nang",
+        "dut",
+        "đại học bách khoa đà nẵng",
+        "bách khoa đà nẵng",
+        "kcn hòa khánh",
+        "đường số 2 kcn hòa khánh",
+        "đường số 2",
+        "liên chiểu"
+      ],
+      "reference": {
+        "authority": "DUT Campus Geodesic Benchmark / KCN Hoa Khanh Logistics Hub",
+        "benchmark_coordinates": [
+          16.0765,
+          108.151
+        ],
+        "precision_meters": 10
+      }
+    },
+    "north_pacific_vertex": {
+      "id": "north_pacific_vertex",
+      "name": "North Pacific Great Circle Chokepoint (South Aleutian)",
+      "name_vi": "Điểm đỉnh hàng hải Bắc Thái Bình Dương (Nam Aleutian)",
+      "type": "waypoint",
+      "country_code": null,
+      "country_name": "International Waters",
+      "subdivision": null,
+      "coordinates": {
+        "latitude": 48.0,
+        "longitude": 175.0
+      },
+      "codes": {
+        "un_locode": null,
+        "iata": null,
+        "icao": null,
+        "wpi_id": null,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "north pacific vertex",
+        "pacific chokepoint"
+      ],
+      "reference": {
+        "authority": "IMO Standard Routing Schemes / North Pacific Route",
+        "benchmark_coordinates": [
+          48.0,
+          175.0
+        ],
+        "precision_meters": 1000
+      }
+    },
+    "luzon_strait": {
+      "id": "luzon_strait",
+      "name": "Luzon Strait Marine Passage",
+      "name_vi": "Hải phận Eo biển Luzon (Cửa ngõ Biển Đông)",
+      "type": "waypoint",
+      "country_code": null,
+      "country_name": "International Waters",
+      "subdivision": null,
+      "coordinates": {
+        "latitude": 21.0,
+        "longitude": 121.0
+      },
+      "codes": {
+        "un_locode": null,
+        "iata": null,
+        "icao": null,
+        "wpi_id": null,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "luzon strait",
+        "eo biển luzon"
+      ],
+      "reference": {
+        "authority": "IHO Maritime Chokepoints / IMO Routeing",
+        "benchmark_coordinates": [
+          21.0,
+          121.0
+        ],
+        "precision_meters": 1000
+      }
+    },
+    "south_china_sea_corridor": {
+      "id": "south_china_sea_corridor",
+      "name": "South China Sea Maritime Corridor",
+      "name_vi": "Hành lang Hàng hải Biển Đông",
+      "type": "waypoint",
+      "country_code": null,
+      "country_name": "International Waters",
+      "subdivision": null,
+      "coordinates": {
+        "latitude": 12.0,
+        "longitude": 114.0
+      },
+      "codes": {
+        "un_locode": null,
+        "iata": null,
+        "icao": null,
+        "wpi_id": null,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "south china sea",
+        "biển đông"
+      ],
+      "reference": {
+        "authority": "IHO Maritime Corridor Specification",
+        "benchmark_coordinates": [
+          12.0,
+          114.0
+        ],
+        "precision_meters": 1000
+      }
+    },
+    "vung_tau_pilot_station": {
+      "id": "vung_tau_pilot_station",
+      "name": "Vung Tau Pilot Boarding Station / Luong Long Tau",
+      "name_vi": "Trạm Hoa tiêu Vũng Tàu (Luồng Lòng Tàu - Soài Rạp)",
+      "type": "waypoint",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "BR-VT",
+      "coordinates": {
+        "latitude": 10.3278,
+        "longitude": 107.0333
+      },
+      "codes": {
+        "un_locode": null,
+        "iata": null,
+        "icao": null,
+        "wpi_id": null,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "vung tau approach",
+        "vung tau pilot station",
+        "hoa tiêu vũng tàu"
+      ],
+      "reference": {
+        "authority": "Vietnam Maritime Administration (VMA) Nautical Charts",
+        "benchmark_coordinates": [
+          10.3278,
+          107.0333
+        ],
+        "precision_meters": 500
+      }
+    },
+    "port_of_oakland": {
+      "id": "port_of_oakland",
+      "name": "Port of Oakland",
+      "name_vi": "Cảng Oakland (San Francisco Bay, California)",
+      "type": "seaport",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "CA",
+      "coordinates": {
+        "latitude": 37.7955,
+        "longitude": -122.2779
+      },
+      "codes": {
+        "un_locode": "USOAK",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 52200,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "port of oakland",
+        "oakland port",
+        "oakland",
+        "oakland, california",
+        "usoak"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #52200 / UN/LOCODE USOAK",
+        "benchmark_coordinates": [
+          37.7955,
+          -122.2779
+        ],
+        "precision_meters": 10
+      }
+    },
+    "hawaii_transit_hub": {
+      "id": "hawaii_transit_hub",
+      "name": "Hawaii Maritime Transit Hub (Honolulu Harbor)",
+      "name_vi": "Trạm trung chuyển hàng hải Hawaii (Cảng Honolulu)",
+      "type": "waypoint",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "HI",
+      "coordinates": {
+        "latitude": 21.3069,
+        "longitude": -157.8583
+      },
+      "codes": {
+        "un_locode": "USHNL",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 52750,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "hawaii transit hub",
+        "hawaii",
+        "honolulu",
+        "honolulu port",
+        "ushnl"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #52750 / UN/LOCODE USHNL",
+        "benchmark_coordinates": [
+          21.3069,
+          -157.8583
+        ],
+        "precision_meters": 10
+      }
+    },
+    "guam_maritime_corridor": {
+      "id": "guam_maritime_corridor",
+      "name": "Guam Maritime Corridor (Apra Harbor)",
+      "name_vi": "Hành lang hàng hải Guam (Cảng Apra)",
+      "type": "waypoint",
+      "country_code": "GU",
+      "country_name": "Guam (US)",
+      "subdivision": "GU",
+      "coordinates": {
+        "latitude": 13.4443,
+        "longitude": 144.7937
+      },
+      "codes": {
+        "un_locode": "GUGUM",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 53370,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "guam maritime corridor",
+        "guam",
+        "apra harbor",
+        "gugum"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #53370 / UN/LOCODE GUGUM",
+        "benchmark_coordinates": [
+          13.4443,
+          144.7937
+        ],
+        "precision_meters": 10
+      }
+    },
+    "tokyo_narita_airspace": {
+      "id": "tokyo_narita_airspace",
+      "name": "Tokyo Narita Airspace / Narita International Airport",
+      "name_vi": "Không phận Tokyo Narita / Sân bay Quốc tế Narita",
+      "type": "airport",
+      "country_code": "JP",
+      "country_name": "Japan",
+      "subdivision": "12",
+      "coordinates": {
+        "latitude": 35.772,
+        "longitude": 140.3929
+      },
+      "codes": {
+        "un_locode": "JPNRT",
+        "iata": "NRT",
+        "icao": "RJAA",
+        "wpi_id": null,
+        "ourairports_id": 5529
+      },
+      "aliases": [
+        "tokyo narita airspace",
+        "tokyo narita",
+        "narita airport",
+        "narita",
+        "rjaa",
+        "nrt",
+        "jpnrt"
+      ],
+      "reference": {
+        "authority": "OurAirports ID 5529 / MLIT JCAB AIP RJAA",
+        "benchmark_coordinates": [
+          35.772,
+          140.3929
+        ],
+        "precision_meters": 10
+      }
+    },
+    "pacific_flight_corridor": {
+      "id": "pacific_flight_corridor",
+      "name": "Central Pacific Flight Corridor (PACOTS Oceanic ATS)",
+      "name_vi": "Hành lang Hàng không Trung tâm Thái Bình Dương (PACOTS)",
+      "type": "waypoint",
+      "country_code": null,
+      "country_name": "International Airspace",
+      "subdivision": null,
+      "coordinates": {
+        "latitude": 28.0,
+        "longitude": -165.0
+      },
+      "codes": {
+        "un_locode": null,
+        "iata": null,
+        "icao": null,
+        "wpi_id": null,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "pacific flight corridor",
+        "pacific airway",
+        "pacots",
+        "pacots corridor"
+      ],
+      "reference": {
+        "authority": "FAA / ICAO Pacific Oceanic Airspace Chart",
+        "benchmark_coordinates": [
+          28.0,
+          -165.0
+        ],
+        "precision_meters": 1000
+      }
+    },
+    "cai_mep_terminal": {
+      "id": "cai_mep_terminal",
+      "name": "Cai Mep International Terminal (CMIT)",
+      "name_vi": "Cảng Quốc tế Cái Mép (Bà Rịa - Vũng Tàu)",
+      "type": "seaport",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "BR-VT",
+      "coordinates": {
+        "latitude": 10.5172,
+        "longitude": 107.0142
+      },
+      "codes": {
+        "un_locode": "VNCMT",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 57385,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "cai mep terminal",
+        "cai mep port",
+        "cảng cái mép",
+        "cái mép",
+        "cmit",
+        "vncmt"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index / UN/LOCODE VNCMT",
+        "benchmark_coordinates": [
+          10.5172,
+          107.0142
+        ],
+        "precision_meters": 10
+      }
+    },
+    "da_nang_port": {
+      "id": "da_nang_port",
+      "name": "Port of Da Nang (Tien Sa Terminal)",
+      "name_vi": "Cảng Đà Nẵng (Khu bến Tiên Sa)",
+      "type": "seaport",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "DN",
+      "coordinates": {
+        "latitude": 16.1215,
+        "longitude": 108.223
+      },
+      "codes": {
+        "un_locode": "VNDAD",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 57420,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "port of da nang",
+        "cảng đà nẵng",
+        "cảng tiên sa",
+        "tien sa port",
+        "tien sa terminal",
+        "da nang port",
+        "vndad"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #57420 / UN/LOCODE VNDAD",
+        "benchmark_coordinates": [
+          16.1215,
+          108.223
+        ],
+        "precision_meters": 10
+      }
+    },
+    "port_of_houston": {
+      "id": "port_of_houston",
+      "name": "Port of Houston (Texas)",
+      "name_vi": "Cảng Houston (Vịnh Mexico, Texas)",
+      "type": "seaport",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "TX",
+      "coordinates": {
+        "latitude": 29.73,
+        "longitude": -95.26
+      },
+      "codes": {
+        "un_locode": "USHOU",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 51740,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "houston port",
+        "port of houston",
+        "houston",
+        "ushou"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #51740 / UN/LOCODE USHOU",
+        "benchmark_coordinates": [
+          29.73,
+          -95.26
+        ],
+        "precision_meters": 10
+      }
+    },
+    "port_of_new_york": {
+      "id": "port_of_new_york",
+      "name": "Port of New York & New Jersey (Newark-Elizabeth Marine Terminal)",
+      "name_vi": "Cảng New York & New Jersey (Bờ Đông Hoa Kỳ)",
+      "type": "seaport",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "NJ",
+      "coordinates": {
+        "latitude": 40.6864,
+        "longitude": -74.1451
+      },
+      "codes": {
+        "un_locode": "USNYC",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 50050,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "port of new york",
+        "new york port",
+        "port newark",
+        "new york",
+        "usnyc",
+        "american port",
+        "us port"
+      ],
+      "reference": {
+        "authority": "NGA World Port Index Pub. 150 #50050 / UN/LOCODE USNYC",
+        "benchmark_coordinates": [
+          40.6864,
+          -74.1451
+        ],
+        "precision_meters": 10
+      }
+    },
+    "panama_canal": {
+      "id": "panama_canal",
+      "name": "Panama Canal Marine Interoceanic Passage",
+      "name_vi": "Kênh đào Panama (Hải trình nối Đại Tây Dương - Thái Bình Dương)",
+      "type": "waypoint",
+      "country_code": "PA",
+      "country_name": "Panama",
+      "subdivision": null,
+      "coordinates": {
+        "latitude": 9.1,
+        "longitude": -79.7
+      },
+      "codes": {
+        "un_locode": "PACNL",
+        "iata": null,
+        "icao": null,
+        "wpi_id": 55300,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "panama canal",
+        "kênh đào panama",
+        "panama canal atlantic",
+        "panama canal pacific",
+        "panama",
+        "pacnl"
+      ],
+      "reference": {
+        "authority": "Panama Canal Authority (ACP) Navigation Coordinates",
+        "benchmark_coordinates": [
+          9.1,
+          -79.7
+        ],
+        "precision_meters": 500
+      }
+    },
+    "dell_factory_texas": {
+      "id": "dell_factory_texas",
+      "name": "Dell Technologies Global Headquarters & Fulfillment Facility",
+      "name_vi": "Trụ sở & Nhà máy Dell Technologies (Round Rock, Texas)",
+      "type": "facility",
+      "country_code": "US",
+      "country_name": "United States",
+      "subdivision": "TX",
+      "coordinates": {
+        "latitude": 30.4991,
+        "longitude": -97.6786
+      },
+      "codes": {
+        "un_locode": null,
+        "iata": null,
+        "icao": null,
+        "wpi_id": null,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "dell factory, texas",
+        "dell factory",
+        "dell technologies",
+        "round rock",
+        "round rock, texas",
+        "texas"
+      ],
+      "reference": {
+        "authority": "USGS Geographic Names Information System / OpenStreetMap Node",
+        "benchmark_coordinates": [
+          30.4991,
+          -97.6786
+        ],
+        "precision_meters": 10
+      }
+    },
+    "singapore_hub": {
+      "id": "singapore_hub",
+      "name": "Port of Singapore / Singapore Changi Airport",
+      "name_vi": "Cảng / Sân bay Quốc tế Singapore",
+      "type": "seaport",
+      "country_code": "SG",
+      "country_name": "Singapore",
+      "subdivision": null,
+      "coordinates": {
+        "latitude": 1.275,
+        "longitude": 103.785
+      },
+      "codes": {
+        "un_locode": "SGSIN",
+        "iata": "SIN",
+        "icao": "WSSS",
+        "wpi_id": 49950,
+        "ourairports_id": 4837
+      },
+      "aliases": [
+        "singapore",
+        "port of singapore",
+        "changi",
+        "changi airport",
+        "sgsin",
+        "sin",
+        "wsss"
+      ],
+      "reference": {
+        "authority": "Maritime and Port Authority of Singapore / UN/LOCODE SGSIN",
+        "benchmark_coordinates": [
+          1.275,
+          103.785
+        ],
+        "precision_meters": 25
+      }
+    },
+    "tokyo_hub": {
+      "id": "tokyo_hub",
+      "name": "Port of Tokyo / Tokyo Metropolitan Area",
+      "name_vi": "Cảng Tokyo / Khu vực Đô thị Tokyo (Nhật Bản)",
+      "type": "seaport",
+      "country_code": "JP",
+      "country_name": "Japan",
+      "subdivision": "13",
+      "coordinates": {
+        "latitude": 35.605,
+        "longitude": 139.755
+      },
+      "codes": {
+        "un_locode": "JPTYO",
+        "iata": "TYO",
+        "icao": null,
+        "wpi_id": 50920,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "tokyo",
+        "japan",
+        "nhật bản",
+        "jptyo",
+        "tyo"
+      ],
+      "reference": {
+        "authority": "Tokyo Metropolitan Government Port & Harbor Bureau / UN/LOCODE JPTYO",
+        "benchmark_coordinates": [
+          35.605,
+          139.755
+        ],
+        "precision_meters": 25
+      }
+    },
+    "shanghai_port": {
+      "id": "shanghai_port",
+      "name": "Port of Shanghai (Yangshan Deepwater Port / Waigaoqiao)",
+      "name_vi": "Cảng Thượng Hải (Cảng nước sâu Dương Sơn)",
+      "type": "seaport",
+      "country_code": "CN",
+      "country_name": "China",
+      "subdivision": "SH",
+      "coordinates": {
+        "latitude": 31.34,
+        "longitude": 121.6
+      },
+      "codes": {
+        "un_locode": "CNSHA",
+        "iata": "SHA",
+        "icao": null,
+        "wpi_id": 51330,
+        "ourairports_id": null
+      },
+      "aliases": [
+        "shanghai",
+        "thượng hải",
+        "port of shanghai",
+        "cnsha",
+        "sha"
+      ],
+      "reference": {
+        "authority": "Shanghai International Port Group (SIPG) / UN/LOCODE CNSHA",
+        "benchmark_coordinates": [
+          31.34,
+          121.6
+        ],
+        "precision_meters": 25
+      }
+    },
+    "hong_kong_airport": {
+      "id": "hong_kong_airport",
+      "name": "Hong Kong International Airport (Chek Lap Kok)",
+      "name_vi": "Sân bay Quốc tế Hồng Kông (Xích Lạp Giác)",
+      "type": "airport",
+      "country_code": "HK",
+      "country_name": "Hong Kong",
+      "subdivision": "HK",
+      "coordinates": {
+        "latitude": 22.308,
+        "longitude": 113.9185
+      },
+      "codes": {
+        "un_locode": "HKHKG",
+        "iata": "HKG",
+        "icao": "VHHH",
+        "wpi_id": null,
+        "ourairports_id": 26733
+      },
+      "aliases": [
+        "hong kong airport",
+        "hong kong",
+        "hồng kông",
+        "hkg",
+        "vhhh",
+        "hkhkg"
+      ],
+      "reference": {
+        "authority": "Civil Aviation Department Hong Kong AIP / OurAirports ID 26733",
+        "benchmark_coordinates": [
+          22.308,
+          113.9185
+        ],
+        "precision_meters": 25
+      }
+    },
+    "incheon_airport": {
+      "id": "incheon_airport",
+      "name": "Incheon International Airport (Seoul Metropolitan)",
+      "name_vi": "Sân bay Quốc tế Incheon (Seoul, Hàn Quốc)",
+      "type": "airport",
+      "country_code": "KR",
+      "country_name": "South Korea",
+      "subdivision": "28",
+      "coordinates": {
+        "latitude": 37.4602,
+        "longitude": 126.4407
+      },
+      "codes": {
+        "un_locode": "KRINC",
+        "iata": "ICN",
+        "icao": "RKSI",
+        "wpi_id": null,
+        "ourairports_id": 5475
+      },
+      "aliases": [
+        "incheon airport",
+        "incheon",
+        "seoul",
+        "hàn quốc",
+        "icn",
+        "rksi",
+        "krinc"
+      ],
+      "reference": {
+        "authority": "Korea Airports Corporation AIP / OurAirports ID 5475",
+        "benchmark_coordinates": [
+          37.4602,
+          126.4407
+        ],
+        "precision_meters": 25
+      }
+    },
+    "taipei_taoyuan_airport": {
+      "id": "taipei_taoyuan_airport",
+      "name": "Taiwan Taoyuan International Airport (Taipei)",
+      "name_vi": "Sân bay Quốc tế Đào Viên Đài Loan (Đài Bắc)",
+      "type": "airport",
+      "country_code": "TW",
+      "country_name": "Taiwan",
+      "subdivision": "TAO",
+      "coordinates": {
+        "latitude": 25.0797,
+        "longitude": 121.2342
+      },
+      "codes": {
+        "un_locode": "TWTPE",
+        "iata": "TPE",
+        "icao": "RCTP",
+        "wpi_id": null,
+        "ourairports_id": 5493
+      },
+      "aliases": [
+        "taipei taoyuan airport",
+        "taipei",
+        "đài bắc",
+        "đài loan",
+        "tpe",
+        "rctp",
+        "twtpe"
+      ],
+      "reference": {
+        "authority": "Civil Aeronautics Administration Taiwan AIP / OurAirports ID 5493",
+        "benchmark_coordinates": [
+          25.0797,
+          121.2342
+        ],
+        "precision_meters": 25
+      }
+    },
+    "da_nang_airport": {
+      "id": "da_nang_airport",
+      "name": "Da Nang International Airport",
+      "name_vi": "Sân bay Quốc tế Đà Nẵng",
+      "type": "airport",
+      "country_code": "VN",
+      "country_name": "Vietnam",
+      "subdivision": "DN",
+      "coordinates": {
+        "latitude": 16.0439,
+        "longitude": 108.1994
+      },
+      "codes": {
+        "un_locode": "VNDAD",
+        "iata": "DAD",
+        "icao": "VVDN",
+        "wpi_id": null,
+        "ourairports_id": 26715
+      },
+      "aliases": [
+        "da nang international airport",
+        "da nang airport",
+        "sân bay đà nẵng",
+        "sân bay quốc tế đà nẵng",
+        "dad airport",
+        "dad",
+        "vvdn"
+      ],
+      "reference": {
+        "authority": "OurAirports ID 26715 / CAAV AIP VVDN",
+        "benchmark_coordinates": [
+          16.0439,
+          108.1994
+        ],
+        "precision_meters": 15
+      }
+    }
+  }
+}

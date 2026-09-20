@@ -1,841 +1,321 @@
+"""
+Logistics Wizard - Central API Facade / Dispatcher
+===================================================
+Module này đóng vai trò tập hợp, điều phối và export các API cho ERPNext / Frappe RPC.
+Các logic nghiệp vụ chuyên biệt đã được phân tách thành các module độc lập:
+1. workflow.py: Quản lý 6 bước tiến trình chuỗi cung ứng (Workflow Chain Traversal & Status)
+2. routing.py: Động cơ định tuyến hàng hải searoute, hàng không Great-Circle 3D & bộ nhớ đệm Redis
+3. GEO_shipTracking.py: Quản lý toạ độ địa lý, geocoding và danh sách vận chuyển
+4. aftership.py: Tích hợp và đồng bộ hành trình vận đơn từ dịch vụ AfterShip
+"""
+
 import frappe
-from frappe import _
+from typing import Optional, Dict, Any
 
-WORKFLOW_STEPS = [
-    {
-        "step": 1,
-        "doctype": "Material Request",
-        "label": "1. Yêu cầu mua hàng (Material Request)",
-        "slug": "material-request",
-    },
-    {
-        "step": 2,
-        "doctype": "Purchase Order",
-        "label": "2. Đơn đặt hàng (Purchase Order)",
-        "slug": "purchase-order",
-    },
-    {
-        "step": 3,
-        "doctype": "Shipment Tracking",
-        "label": "3. Theo dõi hành trình (Shipment Tracking)",
-        "slug": "shipment-tracking",
-    },
-    {
-        "step": 4,
-        "doctype": "Purchase Receipt",
-        "label": "4. Nhận hàng (Purchase Receipt)",
-        "slug": "purchase-receipt",
-    },
-    {
-        "step": 5,
-        "doctype": "Landed Cost Voucher",
-        "label": "5. Phân bổ giá vốn (Landed Cost)",
-        "slug": "landed-cost-voucher",
-    },
-    {
-        "step": 6,
-        "doctype": "Stock Entry",
-        "label": "6. Nhập kho (Stock Entry)",
-        "slug": "stock-entry",
-    },
-]
+# 1. Module Workflow: Quản lý chuỗi tiến trình 6 bước
+from .workflow import (
+    WORKFLOW_STEPS,
+    get_workflow_chain_status,
+)
 
+# 2. Module Routing Engine (Layer 2 - High Performance & Caching)
+from .routing import (
+    get_route_coordinates,
+    get_location_coords,
+    get_location_details,
+    load_locations_data,
+    calculate_ocean_route,
+    calculate_air_route,
+    calculate_road_route,
+    calculate_multimodal_route,
+    great_circle_distance,
+)
 
-@frappe.whitelist()
-def sync_aftership(tracking_number, shipment_name):
-    if not tracking_number or not shipment_name:
-        frappe.throw("Thiếu mã vận đơn (tracking_number)")
+# 3. Module GEO & Legacy Tracking functions
+from .GEO_shipTracking import (
+    get_active_shipments,
+    geocode_location,
+    get_maritime_waypoints,
+    get_air_waypoints,
+    build_route,
+)
 
-    mock_data = {
-        "data": {
-            "tracking": {
-                "tag": "InTransit",
-                "checkpoints": [
-                    {
-                        "checkpoint_time": "2026-09-15T10:00:00",
-                        "location": "US Port",
-                        "message": "Export Customs Cleared",
-                    },
-                    {
-                        "checkpoint_time": "2026-09-15T12:00:00",
-                        "location": "Ocean",
-                        "message": "Departed (Loaded on Vessel/Flight)",
-                    },
-                    {
-                        "checkpoint_time": "2026-09-15T15:00:00",
-                        "location": "Pacific Ocean",
-                        "message": "Ocean/Air Transit",
-                    },
-                ],
-            }
-        }
-    }
-
-    shipment = frappe.get_doc("Shipment Tracking", shipment_name)
-    shipment.set("transit_route", [])
-
-    for cp in mock_data["data"]["tracking"]["checkpoints"]:
-        shipment.append(
-            "transit_route",
-            {
-                "activity": cp.get("message"),
-                "location": cp.get("location"),
-                "date": cp.get("checkpoint_time").split("T")[0],
-            },
-        )
-
-    shipment.save(ignore_permissions=True)
-    frappe.db.commit()
-    return f"Đã đồng bộ thành công {len(mock_data['data']['tracking']['checkpoints'])} trạm hành trình!"
+# 4. Module AfterShip: Đồng bộ vận đơn
+from .aftership import (
+    sync_aftership,
+)
 
 
 @frappe.whitelist(allow_guest=True)
-def get_workflow_chain_status(doctype=None, docname=None):
+def get_shipment_tracking(docname: Optional[str] = None,
+                          doctype: Optional[str] = None,
+                          tracking_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    Traverse 6-step logistics document chain bidirectionally:
-    Material Request <-> Purchase Order <-> Shipment Tracking <-> Purchase Receipt <-> Landed Cost Voucher <-> Stock Entry
-    Returns status, docstatus, completed flag, and direct link for each step.
+    Whitelisted API endpoint for ERPNext / Leaflet Map tracking.
+    Dynamically extracts origin and destination from document / linked Shipment Tracking,
+    invokes routing.py (searoute ocean routing / 3D Great-Circle air routing + Redis cache),
+    and returns rich tracking data, real polylines, and GeoJSON.
     """
-    # Input sanitization and type enforcement
-    if not doctype or not docname or not isinstance(doctype, str) or not isinstance(docname, str):
-        return {
-            "success": False,
-            "error": _("Thiếu thông tin doctype hoặc docname hợp lệ"),
-            "steps": [],
-        }
+    # Support tracking_id argument interchangeably with docname
+    if tracking_id and not docname:
+        docname = tracking_id
+        if not doctype:
+            doctype = "Purchase Order" if str(docname).startswith("PUR") else "Shipment Tracking"
 
-    # Ensure string arguments are stripped
-    doctype = doctype.strip()
-    docname = docname.strip()
-    if not doctype or not docname:
-        return {
-            "success": False,
-            "error": _("Thiếu thông tin doctype hoặc docname hợp lệ"),
-            "steps": [],
-        }
-
-    chain = {s["doctype"]: None for s in WORKFLOW_STEPS}
-    if doctype in chain:
-        chain[doctype] = docname
-
-    # 1. Traversal from/to Stock Entry
-    if chain["Stock Entry"]:
-        ste_pr, ste_po, ste_mr = _get_links_from_ste(chain["Stock Entry"])
-        if ste_pr and not chain["Purchase Receipt"]:
-            chain["Purchase Receipt"] = ste_pr
-        if ste_po and not chain["Purchase Order"]:
-            chain["Purchase Order"] = ste_po
-        if ste_mr and not chain["Material Request"]:
-            chain["Material Request"] = ste_mr
-
-    # 2. Traversal from/to Landed Cost Voucher
-    if chain["Landed Cost Voucher"] and not chain["Purchase Receipt"]:
-        chain["Purchase Receipt"] = _get_pr_from_lcv(chain["Landed Cost Voucher"])
-
-    # 3. Traversal from/to Shipment Tracking
-    if chain["Shipment Tracking"]:
-        st_po, st_pr = _get_links_from_st(chain["Shipment Tracking"])
-        if st_po and not chain["Purchase Order"]:
-            chain["Purchase Order"] = st_po
-        if st_pr and not chain["Purchase Receipt"]:
-            chain["Purchase Receipt"] = st_pr
-
-    # 4. Traversal between Purchase Receipt and Purchase Order
-    if chain["Purchase Receipt"] and not chain["Purchase Order"]:
-        chain["Purchase Order"] = _get_po_from_pr(chain["Purchase Receipt"])
-    elif chain["Purchase Order"] and not chain["Purchase Receipt"]:
-        chain["Purchase Receipt"] = _get_pr_from_po(chain["Purchase Order"])
-
-    # 5. Traversal between Purchase Order and Material Request
-    if chain["Purchase Order"] and not chain["Material Request"]:
-        chain["Material Request"] = _get_mr_from_po(chain["Purchase Order"])
-    elif chain["Material Request"] and not chain["Purchase Order"]:
-        chain["Purchase Order"] = _get_po_from_mr(chain["Material Request"])
-
-    # 6. Fallback direct links between PR and MR
-    if chain["Purchase Receipt"] and not chain["Material Request"]:
-        chain["Material Request"] = _get_mr_from_pr(chain["Purchase Receipt"])
-    elif chain["Material Request"] and not chain["Purchase Receipt"]:
-        chain["Purchase Receipt"] = _get_pr_from_mr(chain["Material Request"])
-
-    # 7. Secondary pass: ensure all downstream links from discovered nodes are populated
-    # From PO -> PR & MR & ST
-    if chain["Purchase Order"]:
-        if not chain["Material Request"]:
-            chain["Material Request"] = _get_mr_from_po(chain["Purchase Order"])
-        if not chain["Purchase Receipt"]:
-            chain["Purchase Receipt"] = _get_pr_from_po(chain["Purchase Order"])
-        if not chain["Shipment Tracking"]:
-            chain["Shipment Tracking"] = _get_shipment_tracking(
-                chain["Purchase Order"], chain["Purchase Receipt"]
-            )
-
-    # From PR -> LCV & STE & ST
-    if chain["Purchase Receipt"]:
-        if not chain["Landed Cost Voucher"]:
-            chain["Landed Cost Voucher"] = _get_lcv_from_pr(chain["Purchase Receipt"])
-        if not chain["Stock Entry"]:
-            chain["Stock Entry"] = _get_ste_from_chain(
-                chain["Purchase Receipt"],
-                chain["Purchase Order"],
-                chain["Material Request"],
-            )
-        if not chain["Shipment Tracking"]:
-            chain["Shipment Tracking"] = _get_shipment_tracking(
-                chain["Purchase Order"], chain["Purchase Receipt"]
-            )
-
-    # From ST -> PO / PR
-    if not chain["Shipment Tracking"]:
-        chain["Shipment Tracking"] = _get_shipment_tracking(
-            chain["Purchase Order"], chain["Purchase Receipt"]
-        )
-
-    # Final pass for Stock Entry from any linked node
-    if not chain["Stock Entry"]:
-        chain["Stock Entry"] = _get_ste_from_chain(
-            chain["Purchase Receipt"],
-            chain["Purchase Order"],
-            chain["Material Request"],
-        )
-
-    # Construct response steps
-    steps_data = []
-    for s in WORKFLOW_STEPS:
-        dt = s["doctype"]
-        dn = chain.get(dt)
-        status_info = _get_doc_status_info(dt, dn)
-        is_current = (dt == doctype and dn == docname)
-
-        steps_data.append(
-            {
-                "step": s["step"],
-                "doctype": dt,
-                "label": s["label"],
-                "docname": dn,
-                "docstatus": status_info["docstatus"],
-                "status": status_info["status"],
-                "completed": status_info["completed"],
-                "is_current": is_current,
-                "url": f"/app/{s['slug']}/{dn}" if dn else f"/app/{s['slug']}",
-            }
-        )
-
-    return {
-        "success": True,
-        "current_doctype": doctype,
-        "current_docname": docname,
-        "steps": steps_data,
-    }
-
-
-# ==================== QUERY HELPERS (INDEX-OPTIMIZED) ====================
-
-def _get_mr_from_po(po_name):
-    if not po_name or not isinstance(po_name, str):
-        return None
-    items = frappe.db.get_all(
-        "Purchase Order Item",
-        filters={"parent": po_name, "docstatus": ["<", 2]},
-        fields=["material_request"],
-        limit=1,
-    )
-    for it in items:
-        if it.material_request:
-            return it.material_request
-    return None
-
-
-def _get_po_from_mr(mr_name):
-    if not mr_name or not isinstance(mr_name, str):
-        return None
-    items = frappe.db.get_all(
-        "Purchase Order Item",
-        filters={"material_request": mr_name, "docstatus": ["<", 2]},
-        fields=["parent"],
-        order_by="docstatus desc, creation desc",
-        limit=1,
-    )
-    return items[0].parent if items else None
-
-
-def _get_pr_from_po(po_name):
-    if not po_name or not isinstance(po_name, str):
-        return None
-    items = frappe.db.get_all(
-        "Purchase Receipt Item",
-        filters={"purchase_order": po_name, "docstatus": ["<", 2]},
-        fields=["parent"],
-        order_by="docstatus desc, creation desc",
-        limit=1,
-    )
-    return items[0].parent if items else None
-
-
-def _get_po_from_pr(pr_name):
-    if not pr_name or not isinstance(pr_name, str):
-        return None
-    items = frappe.db.get_all(
-        "Purchase Receipt Item",
-        filters={"parent": pr_name, "docstatus": ["<", 2]},
-        fields=["purchase_order"],
-        limit=1,
-    )
-    for it in items:
-        if it.purchase_order:
-            return it.purchase_order
-    return None
-
-
-def _get_mr_from_pr(pr_name):
-    if not pr_name or not isinstance(pr_name, str):
-        return None
-    items = frappe.db.get_all(
-        "Purchase Receipt Item",
-        filters={"parent": pr_name, "docstatus": ["<", 2]},
-        fields=["material_request"],
-        limit=1,
-    )
-    for it in items:
-        if it.material_request:
-            return it.material_request
-    return None
-
-
-def _get_pr_from_mr(mr_name):
-    if not mr_name or not isinstance(mr_name, str):
-        return None
-    items = frappe.db.get_all(
-        "Purchase Receipt Item",
-        filters={"material_request": mr_name, "docstatus": ["<", 2]},
-        fields=["parent"],
-        order_by="docstatus desc, creation desc",
-        limit=1,
-    )
-    return items[0].parent if items else None
-
-
-def _get_lcv_from_pr(pr_name):
-    if not pr_name or not isinstance(pr_name, str):
-        return None
-    records = frappe.db.get_all(
-        "Landed Cost Purchase Receipt",
-        filters={
-            "receipt_document": pr_name,
-            "receipt_document_type": "Purchase Receipt",
-            "docstatus": ["<", 2],
-        },
-        fields=["parent"],
-        order_by="docstatus desc, creation desc",
-        limit=1,
-    )
-    return records[0].parent if records else None
-
-
-def _get_pr_from_lcv(lcv_name):
-    if not lcv_name or not isinstance(lcv_name, str):
-        return None
-    records = frappe.db.get_all(
-        "Landed Cost Purchase Receipt",
-        filters={
-            "parent": lcv_name,
-            "receipt_document_type": "Purchase Receipt",
-            "docstatus": ["<", 2],
-        },
-        fields=["receipt_document"],
-        limit=1,
-    )
-    return (
-        records[0].receipt_document
-        if records and records[0].receipt_document
-        else None
-    )
-
-
-def _get_ste_from_chain(pr_name, po_name, mr_name):
-    pr_name = pr_name if (pr_name and isinstance(pr_name, str)) else None
-    po_name = po_name if (po_name and isinstance(po_name, str)) else None
-    mr_name = mr_name if (mr_name and isinstance(mr_name, str)) else None
-
-    if pr_name:
-        ste = frappe.db.get_value(
-            "Stock Entry",
-            {"purchase_receipt_no": pr_name, "docstatus": ["<", 2]},
-            "name",
-        )
-        if ste:
-            return ste
-        ste_det = frappe.db.get_all(
-            "Stock Entry Detail",
-            filters={
-                "reference_purchase_receipt": pr_name,
-                "docstatus": ["<", 2],
-            },
-            fields=["parent"],
-            order_by="docstatus desc, creation desc",
-            limit=1,
-        )
-        if ste_det:
-            return ste_det[0].parent
-
-    if po_name:
-        ste = frappe.db.get_value(
-            "Stock Entry",
-            {"purchase_order": po_name, "docstatus": ["<", 2]},
-            "name",
-        )
-        if ste:
-            return ste
-
-    if mr_name:
-        ste_det = frappe.db.get_all(
-            "Stock Entry Detail",
-            filters={"material_request": mr_name, "docstatus": ["<", 2]},
-            fields=["parent"],
-            order_by="docstatus desc, creation desc",
-            limit=1,
-        )
-        if ste_det:
-            return ste_det[0].parent
-
-    return None
-
-
-def _get_links_from_ste(ste_name):
-    if not ste_name or not isinstance(ste_name, str):
-        return None, None, None
-    ste = frappe.db.get_value(
-        "Stock Entry", ste_name, ["purchase_receipt_no", "purchase_order"], as_dict=True
-    )
-    pr = ste.purchase_receipt_no if ste else None
-    po = ste.purchase_order if ste else None
-    mr = None
-    if not pr:
-        det_pr = frappe.db.get_all(
-            "Stock Entry Detail",
-            filters={"parent": ste_name, "docstatus": ["<", 2]},
-            fields=["reference_purchase_receipt"],
-            limit=1,
-        )
-        if det_pr and det_pr[0].reference_purchase_receipt:
-            pr = det_pr[0].reference_purchase_receipt
-    det_mr = frappe.db.get_all(
-        "Stock Entry Detail",
-        filters={"parent": ste_name, "docstatus": ["<", 2]},
-        fields=["material_request"],
-        limit=1,
-    )
-    if det_mr and det_mr[0].material_request:
-        mr = det_mr[0].material_request
-    return pr, po, mr
-
-
-def _get_shipment_tracking(po_name, pr_name):
-    po_name = po_name if (po_name and isinstance(po_name, str)) else None
-    pr_name = pr_name if (pr_name and isinstance(pr_name, str)) else None
-    if not po_name and not pr_name:
-        return None
-    if not frappe.db.exists("DocType", "Shipment Tracking"):
-        return None
-    meta = frappe.get_meta("Shipment Tracking")
-    if po_name:
-        if meta.has_field("purchase_order"):
-            res = frappe.db.get_all(
-                "Shipment Tracking",
-                filters={"purchase_order": po_name, "docstatus": ["<", 2]},
-                fields=["name"],
-                order_by="docstatus desc, creation desc",
-                limit=1,
-            )
-            if res:
-                return res[0].name
-        if meta.has_field("po_no"):
-            res = frappe.db.get_all(
-                "Shipment Tracking",
-                filters={"po_no": po_name, "docstatus": ["<", 2]},
-                fields=["name"],
-                order_by="docstatus desc, creation desc",
-                limit=1,
-            )
-            if res:
-                return res[0].name
-    if pr_name and meta.has_field("purchase_receipt"):
-        res = frappe.db.get_all(
-            "Shipment Tracking",
-            filters={"purchase_receipt": pr_name, "docstatus": ["<", 2]},
-            fields=["name"],
-            order_by="docstatus desc, creation desc",
-            limit=1,
-        )
-        if res:
-            return res[0].name
-    return None
-
-
-def _get_links_from_st(st_name):
-    if not st_name or not isinstance(st_name, str) or not frappe.db.exists("DocType", "Shipment Tracking"):
-        return None, None
-    meta = frappe.get_meta("Shipment Tracking")
-    po, pr = None, None
-    if meta.has_field("purchase_order"):
-        po = frappe.db.get_value("Shipment Tracking", st_name, "purchase_order")
-    elif meta.has_field("po_no"):
-        po = frappe.db.get_value("Shipment Tracking", st_name, "po_no")
-    if meta.has_field("purchase_receipt"):
-        pr = frappe.db.get_value("Shipment Tracking", st_name, "purchase_receipt")
-    return po, pr
-
-
-def _get_doc_status_info(doctype, docname):
-    if (
-        not doctype
-        or not docname
-        or not isinstance(doctype, str)
-        or not isinstance(docname, str)
-    ):
-        return {"docstatus": None, "status": None, "completed": False}
-
-    if not frappe.db.exists("DocType", doctype) or not frappe.db.exists(doctype, docname):
-        return {"docstatus": None, "status": None, "completed": False}
-
-    meta = frappe.get_meta(doctype)
-    fields = ["name", "docstatus"]
-    if meta.has_field("status"):
-        fields.append("status")
-
-    doc_vals = frappe.db.get_value(doctype, docname, fields, as_dict=True)
-    if not doc_vals:
-        return {"docstatus": None, "status": None, "completed": False}
-
-    docstatus = doc_vals.get("docstatus", 0)
-    status = doc_vals.get("status", "")
-
-    if doctype == "Shipment Tracking":
-        completed = bool(docname) and (docstatus != 2 and status != "Cancelled")
-    elif meta.is_submittable:
-        completed = (docstatus == 1)
-    else:
-        completed = (docstatus != 2 and status != "Cancelled")
-
-    return {
-        "docstatus": docstatus,
-        "status": status,
-        "completed": completed,
-    }
-import frappe
-import requests
-import random
-import urllib.parse
-
-OFFLINE_LOCATION_COORDINATES = {
-    # Apple / California / US West Coast
-    "apple park, cupertino": [37.3346, -122.0090],
-    "apple park": [37.3346, -122.0090],
-    "apple inc.": [37.3346, -122.0090],
-    "apple warehouse, cupertino": [37.3346, -122.0090],
-    "cupertino": [37.3318, -122.0312],
-    "cupertino, california": [37.3318, -122.0312],
-    "san francisco": [37.7749, -122.4194],
-    "san francisco airport": [37.6213, -122.3790],
-    "sfo airport": [37.6213, -122.3790],
-    "sfo": [37.6213, -122.3790],
-    "port of long beach": [33.7701, -118.1937],
-    "long beach port": [33.7701, -118.1937],
-    "long beach": [33.7701, -118.1937],
-    "port of los angeles": [33.7432, -118.2673],
-    "la port": [33.7432, -118.2673],
-    "port of oakland": [37.7952, -122.2792],
-    "oakland": [37.7952, -122.2792],
-    "california": [36.7783, -119.4179],
-    "united states": [37.0902, -95.7129],
-    "usa": [37.0902, -95.7129],
-
-    # Texas / US Inland
-    "dell factory, texas": [30.4515, -97.6664],
-    "dell factory": [30.4515, -97.6664],
-    "highway 45 to new york": [36.1627, -86.7816],
-    "highway 45": [32.7767, -96.7970],
-    "texas": [31.9686, -99.9018],
-    "port of new york": [40.6840, -74.0400],
-    "new york": [40.7128, -74.0060],
-    "american": [37.0902, -95.7129],
-    "american port": [40.7128, -74.0060],
-    "us port": [40.7128, -74.0060],
-
-    # Ocean / Maritime & Air Corridors
-    "pacific ocean": [20.0, -160.0],
-    "ocean": [20.0, -160.0],
-    "hawaii transit hub": [21.3069, -157.8583],
-    "mid-pacific ocean": [20.0, -165.0],
-    "guam maritime corridor": [13.4443, 144.7937],
-    "luzon strait": [20.0, 121.0],
-    "east sea": [12.0, 114.0],
-    "south china sea": [12.0, 114.0],
-    "pacific flight corridor": [28.0, -165.0],
-    "tokyo narita airspace": [35.7720, 140.3929],
-
-    # Vietnam Ports & Gateways
-    "cat lai port, ho chi minh": [10.7600, 106.7900],
-    "cat lai port": [10.7600, 106.7900],
-    "vn port": [10.7600, 106.7900],
-    "cap khanhs warehouse": [10.8231, 106.6297],
-    "cap khanh logistics warehouse": [10.8231, 106.6297],
-    "cap khanh logistics": [10.8231, 106.6297],
-    "stores - ck": [10.8231, 106.6297],
-    "ck store": [10.8231, 106.6297],
-    "tan son nhat airport": [10.8188, 106.6520],
-    "tan son nhat": [10.8188, 106.6520],
-    "sgn airport": [10.8188, 106.6520],
-    "sgn": [10.8188, 106.6520],
-    "noi bai airport": [21.2212, 105.8072],
-    "noi bai": [21.2212, 105.8072],
-    "han airport": [21.2212, 105.8072],
-    "ho chi minh city": [10.8231, 106.6297],
-    "tp. hồ chí minh": [10.8231, 106.6297],
-    "ho chi minh": [10.8231, 106.6297],
-    "hanoi": [21.0285, 105.8542],
-    "hà nội": [21.0285, 105.8542],
-    "da nang": [16.0544, 108.2022],
-    "đà nẵng": [16.0544, 108.2022],
-    "hai phong port": [20.8651, 106.7093],
-    "hai phong": [20.8449, 106.6881],
-    "hải phòng": [20.8449, 106.6881],
-    "vietnam": [14.0583, 108.2772],
-
-    # International Hubs
-    "singapore": [1.3521, 103.8198],
-    "tokyo": [35.6762, 139.6503],
-    "shanghai": [31.2304, 121.4737],
-}
-
-def geocode_location(city, country):
-    if not city and not country:
-        return None
-    query = f"{city or ''}, {country or ''}".strip(", ")
-    
-    cache_key = f"geocache_{query.lower()}"
-    try:
-        cached = frappe.cache().get_value(cache_key)
-        if cached:
-            return cached
-    except Exception:
-        pass
-
-    # Check offline coordinate database first for container / network isolation resilience
-    q_lower = query.lower().strip()
-    if q_lower in OFFLINE_LOCATION_COORDINATES:
-        coords = OFFLINE_LOCATION_COORDINATES[q_lower]
-        try:
-            frappe.cache().set_value(cache_key, coords, expires_in_sec=86400)
-        except Exception:
-            pass
-        return coords
-
-    for key, coords in OFFLINE_LOCATION_COORDINATES.items():
-        if key in q_lower or q_lower in key:
-            try:
-                frappe.cache().set_value(cache_key, coords, expires_in_sec=86400)
-            except Exception:
-                pass
-            return coords
-
-    url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(query)}&format=json&limit=1"
-    headers = {"User-Agent": "ERPNext-LogisticsWizard-App"}
-    try:
-        r = requests.get(url, headers=headers, timeout=5)
-        if r.status_code == 200 and r.json():
-            data = r.json()[0]
-            result = [float(data['lat']), float(data['lon'])]
-            try:
-                frappe.cache().set_value(cache_key, result, expires_in_sec=86400)
-            except Exception:
-                pass
-            return result
-    except Exception as e:
-        frappe.log_error(title="Geocoding Error", message=f"Query: {query}, Error: {str(e)}")
-    return None
-
-def get_maritime_waypoints(origin, dest):
-    o_lat, o_lng = origin
-    d_lat, d_lng = dest
-    waypoints = [origin]
-    
-    # Trans-Pacific route (US West Coast <-> Vietnam / SE Asia)
-    if (o_lng < -70 and d_lng > 100) or (o_lng > 100 and d_lng < -70):
-        # US -> Hawaii -> Guam -> Luzon Strait / East Sea -> Vietnam
-        if o_lng < 0: # Origin in US, Dest in Asia
-            waypoints.append([21.3069, -157.8583])  # Hawaii Transit Hub
-            waypoints.append([13.4443, 144.7937])   # Guam Maritime Corridor
-            waypoints.append([16.0, 118.0])         # East Sea / South China Sea
-        else: # Origin in Asia, Dest in US
-            waypoints.append([16.0, 118.0])
-            waypoints.append([13.4443, 144.7937])
-            waypoints.append([21.3069, -157.8583])
-    elif o_lng > 70 and d_lng < 50:
-        waypoints.append([5.0, 80.0])
-        if d_lat > 20:
-            waypoints.append([12.0, 43.0])
-            waypoints.append([27.0, 34.0])
-    
-    waypoints.append(dest)
-    return waypoints
-
-def get_air_waypoints(origin, dest):
-    o_lat, o_lng = origin
-    d_lat, d_lng = dest
-    waypoints = [origin]
-    
-    # Trans-Pacific Air corridor (US <-> Vietnam)
-    if (o_lng < -70 and d_lng > 100) or (o_lng > 100 and d_lng < -70):
-        if o_lng < 0:
-            waypoints.append([35.0, -165.0])       # Pacific Flight Corridor
-            waypoints.append([35.7720, 140.3929])  # Tokyo Narita Airspace
-        else:
-            waypoints.append([35.7720, 140.3929])
-            waypoints.append([35.0, -165.0])
-    
-    waypoints.append(dest)
-    return waypoints
-
-@frappe.whitelist(allow_guest=True)
-def get_active_shipments():
-    """Returns a list of Purchase Orders that are currently in transit."""
-    pos = frappe.get_all(
-        "Purchase Order",
-        filters={
-            "docstatus": 1,
-            "status": ["not in", ["Draft", "Completed", "Closed", "Received", "Cancelled", "Giao hàng thành công"]]
-        },
-        fields=["name", "status", "transaction_date", "supplier_name"]
-    )
-    return {"status": "success", "data": pos}
-
-@frappe.whitelist(allow_guest=True)
-def get_shipment_tracking(docname=None, doctype=None):
     if not docname or not doctype:
-        return {"status": "error", "message": "Vui lòng chọn một đơn hàng."}
+        return {"status": "error", "message": "Vui lòng chọn một đơn hàng hoặc mã vận đơn."}
 
     if not frappe.db.exists(doctype, docname):
-        return {"status": "error", "message": "Không tìm thấy chứng từ."}
-        
+        return {"status": "error", "message": f"Không tìm thấy chứng từ {doctype} {docname}."}
+
     doc = frappe.get_doc(doctype, docname)
     docstatus = doc.docstatus
-    status = getattr(doc, 'status', 'Draft')
-    
-    # Check if there is a Shipment Tracking document for this Purchase Order
+    status = getattr(doc, "status", "Draft")
+
     shipment_doc = None
+    po_doc = None
+
     if doctype == "Purchase Order":
+        po_doc = doc
         shipment_name = frappe.db.get_value("Shipment Tracking", {"purchase_order": docname}, "name")
         if shipment_name:
             shipment_doc = frappe.get_doc("Shipment Tracking", shipment_name)
     elif doctype == "Shipment Tracking":
         shipment_doc = doc
-        
-    method = 'Road'
-    if shipment_doc and hasattr(shipment_doc, 'shipping_method') and shipment_doc.shipping_method:
+        po_name = getattr(doc, "purchase_order", None)
+        if po_name and frappe.db.exists("Purchase Order", po_name):
+            po_doc = frappe.get_doc("Purchase Order", po_name)
+
+    # 1. Resolve Shipping Method
+    method = "Ocean"
+    if shipment_doc and getattr(shipment_doc, "shipping_method", None):
         method = shipment_doc.shipping_method
-    elif hasattr(doc, 'shipping_method') and doc.shipping_method:
+    elif getattr(doc, "shipping_method", None):
         method = doc.shipping_method
-    elif hasattr(doc, 'ship_via') and doc.ship_via:
+    elif getattr(doc, "ship_via", None):
         method = doc.ship_via
-    else:
-        method = random.choice(['Air', 'Ocean', 'Road'])
 
-    origin_city, origin_country = "Hanoi", "Vietnam"
-    dest_city, dest_country = "Ho Chi Minh City", "Vietnam"
-    origin_str, dest_str = "Hà Nội", "TP. Hồ Chí Minh"
+    method_norm = str(method).strip().capitalize()
+    if method_norm in ["Sea", "Maritime"]:
+        method_norm = "Ocean"
+    elif method_norm in ["Flight", "Plane"]:
+        method_norm = "Air"
+    elif method_norm in ["Truck", "Inland"]:
+        method_norm = "Road"
 
-    if doctype == "Purchase Order":
-        if doc.supplier_address:
-            addr = frappe.get_doc("Address", doc.supplier_address)
-            if addr.city: origin_city = addr.city
-            if addr.country: origin_country = addr.country
-            origin_str = f"{origin_city}, {origin_country}"
-            
-        if doc.shipping_address:
-            addr = frappe.get_doc("Address", doc.shipping_address)
-            if addr.city: dest_city = addr.city
-            if addr.country: dest_country = addr.country
-            dest_str = f"{dest_city}, {dest_country}"
-        elif doc.billing_address:
-            addr = frappe.get_doc("Address", doc.billing_address)
-            if addr.city: dest_city = addr.city
-            if addr.country: dest_country = addr.country
-            dest_str = f"{dest_city}, {dest_country}"
+    # 2. Extract Multimodal 4 Stations: Origin (O), Departure Hub, Arrival Hub, Destination (D)
+    origin_facility = None
+    departure_hub = None
+    arrival_hub = None
+    dest_facility = None
 
-    route_coords = []
-    
-    # If we have a Shipment Tracking doc with transit_route, use those locations!
-    if shipment_doc and shipment_doc.transit_route:
-        for row in shipment_doc.transit_route:
-            if row.location:
-                # Some naive geocoding lookup
-                loc_coords = geocode_location(row.location, "")
-                if loc_coords:
-                    route_coords.append(loc_coords)
+    if shipment_doc:
+        departure_hub = getattr(shipment_doc, "origin_port", None)
+        arrival_hub = getattr(shipment_doc, "destination_port", None)
+        dest_facility = getattr(shipment_doc, "warehouse", None) or getattr(shipment_doc, "dest_warehouse", None)
 
-    if not route_coords:
-        origin_coords = geocode_location(origin_city, origin_country) or [21.0285, 105.8542]
-        dest_coords = geocode_location(dest_city, dest_country) or [10.8231, 106.6297]
+    source_doc = po_doc or doc
+    if source_doc:
+        # Origin Facility: supplier address or company
+        if not origin_facility and getattr(source_doc, "supplier_address", None):
+            try:
+                s_addr = frappe.get_doc("Address", source_doc.supplier_address)
+                parts = [p for p in [s_addr.city, s_addr.country] if p]
+                if parts:
+                    origin_facility = ", ".join(parts)
+                elif getattr(s_addr, "address_title", None):
+                    origin_facility = s_addr.address_title
+            except Exception:
+                origin_facility = source_doc.supplier_address
 
-        if method == 'Ocean':
-            route_coords = get_maritime_waypoints(origin_coords, dest_coords)
-        elif method == 'Air':
-            route_coords = get_air_waypoints(origin_coords, dest_coords)
-        else:
-            route_coords = [origin_coords, dest_coords]
+        # Destination Facility: warehouse or shipping address
+        if not dest_facility:
+            dest_facility = getattr(source_doc, "set_warehouse", None) or getattr(source_doc, "shipping_address", None)
+            if dest_facility and frappe.db.exists("Address", dest_facility):
+                try:
+                    d_addr = frappe.get_doc("Address", dest_facility)
+                    parts = [p for p in [d_addr.city, d_addr.country] if p]
+                    if parts:
+                        dest_facility = ", ".join(parts)
+                    elif getattr(d_addr, "address_title", None):
+                        dest_facility = d_addr.address_title
+                except Exception:
+                    pass
 
-    progress = 0.5
-    status_text = "Đang vận chuyển (In Transit)"
-    
-    if method == 'Air':
-        current_location = "Đang bay qua không phận Quốc tế"
-    elif method == 'Ocean':
-        current_location = "Đang trên biển (Maritime Transit)"
-    else:
-        current_location = "Đang trên tuyến đường bộ"
+    # Intelligent Fallbacks for US (Apple) -> VN (Da Nang) Corridor
+    if not origin_facility:
+        origin_facility = "apple_park_cupertino"
+    if not departure_hub:
+        departure_hub = "port_of_long_beach" if method_norm == "Ocean" else "san_francisco_airport"
+    if not arrival_hub:
+        arrival_hub = "da_nang_port" if method_norm == "Ocean" else "da_nang_airport"
+    if not dest_facility:
+        dest_facility = "cap_khanh_warehouse"
 
-    if docstatus == 1 and status in ['Completed', 'Received', 'Closed', 'Giao hàng thành công', 'Delivered']:
+    # 3. Dynamic Route Generation via Multimodal Routing Engine
+    try:
+        route_data = calculate_multimodal_route(
+            origin_facility=origin_facility,
+            departure_hub=departure_hub,
+            arrival_hub=arrival_hub,
+            dest_facility=dest_facility,
+            shipping_method=method_norm,
+            use_cache=True
+        )
+        legs = route_data.get("legs", [])
+        full_route = route_data.get("full_route", [])
+        distance_km = route_data.get("distance_km", 0.0)
+        is_cached = route_data.get("cached", False)
+        progress_thresholds = route_data.get("progress_thresholds", [0.0, 0.05, 0.95, 1.0])
+        origin_info = route_data.get("origin", {})
+        dhub_info = route_data.get("departure_hub", {})
+        ahub_info = route_data.get("arrival_hub", {})
+        dest_info = route_data.get("destination", {})
+    except Exception as e:
+        frappe.log_error(f"Multimodal calculation failed ({e}), falling back to standard route", "Logistics Wizard Routing")
+        route_legacy = get_route_coordinates(departure_hub or origin_facility, arrival_hub or dest_facility, shipping_method=method_norm, use_cache=True)
+        legs = []
+        full_route = route_legacy.get("coordinates_latlon", [])
+        distance_km = route_legacy.get("distance_km", 0.0)
+        is_cached = route_legacy.get("cached", False)
+        progress_thresholds = [0.0, 0.05, 0.95, 1.0]
+        origin_info = {"query": str(origin_facility), "name": "Apple Park (Cupertino)", "coordinates": [37.3346, -122.009]}
+        dhub_info = {"query": str(departure_hub), "name": "Port of Long Beach", "coordinates": [33.7542, -118.2165]}
+        ahub_info = {"query": str(arrival_hub), "name": "Port of Da Nang", "coordinates": [16.1215, 108.223]}
+        dest_info = {"query": str(dest_facility), "name": "Kho Logistics Cáp Kim Khánh Đà Nẵng", "coordinates": [16.0765, 108.151]}
+
+    # 4. Determine Progress, Current Leg & Vehicle State
+    check_status = (shipment_doc.status if shipment_doc else status) or "Draft"
+
+    if check_status in ["Completed", "Received", "Closed", "Giao hàng thành công", "Delivered"]:
         progress = 1.0
-        status_text = "Đã giao hàng thành công"
-        current_location = dest_str
-        if shipment_doc and shipment_doc.transit_route:
-            current_location = shipment_doc.transit_route[-1].location
-    elif docstatus == 2 or (docstatus == 0):
-        progress = 0.0
-        status_text = "Chờ xử lý"
-        current_location = origin_str
-        if shipment_doc and shipment_doc.transit_route:
-            current_location = shipment_doc.transit_route[0].location
-
-    current_route = []
-    if progress == 0.0:
-        current_route = [route_coords[0]]
-    elif progress == 1.0:
-        current_route = route_coords
-    else:
-        # If we have custom waypoints, include all route coordinates in sequence
-        # and set the current location
-        if len(route_coords) > 2:
-            current_route = route_coords
-            if shipment_doc and shipment_doc.transit_route:
-                current_location = shipment_doc.transit_route[-2].location if len(shipment_doc.transit_route) > 1 else current_location
+        status_text = "Đã giao hàng thành công tại Kho Cáp Kim Khánh Đà Nẵng"
+        current_location = dest_info.get("name") or "Kho Cáp Kim Khánh Đà Nẵng (KCN Hòa Khánh)"
+        current_leg_id = "last_mile"
+        current_vehicle = "Truck"
+    elif check_status == "Customs Clearance":
+        progress = max(0.85, progress_thresholds[2] if len(progress_thresholds) > 2 else 0.85)
+        status_text = "Đang thông quan hải quan tại Cảng/Sân bay Đà Nẵng"
+        current_location = ahub_info.get("name") or "Cảng Tiên Sa / Sân bay Đà Nẵng"
+        current_leg_id = "last_mile"
+        current_vehicle = "Truck"
+    elif check_status == "In Transit" or (doctype == "Purchase Order" and docstatus == 1 and check_status not in ["Draft", "Cancelled"]):
+        progress = 0.55
+        current_leg_id = "main_haul"
+        current_vehicle = "Ship" if method_norm == "Ocean" else "Plane"
+        if method_norm == "Air":
+            status_text = "Đang bay qua không phận Quốc tế (Air Transit)"
+            current_location = "Không phận Quốc tế (Central Pacific Flight Corridor)"
+        elif method_norm == "Ocean":
+            status_text = "Đang trên biển Thái Bình Dương (Maritime Transit)"
+            current_location = "Hải phận Quốc tế Thái Bình Dương (South of Aleutians)"
         else:
-            mid = [
-                (route_coords[0][0] + route_coords[-1][0]) / 2,
-                (route_coords[0][1] + route_coords[-1][1]) / 2
-            ]
-            current_route = [route_coords[0], mid]
+            status_text = "Đang trên tuyến đường bộ nội địa"
+            current_location = "Tuyến đường bộ"
+            current_vehicle = "Truck"
+
+        if shipment_doc and getattr(shipment_doc, "transit_route", None) and len(shipment_doc.transit_route) > 1:
+            current_location = shipment_doc.transit_route[-1].location
+    elif check_status == "Draft" or (doctype == "Purchase Order" and docstatus in [0, 2]):
+        progress = 0.0
+        status_text = "Chờ xuất kho tại nguồn (Draft)"
+        current_location = origin_info.get("name") or "Kho nhà máy Cupertino"
+        current_leg_id = "first_mile"
+        current_vehicle = "Truck"
+        if shipment_doc and getattr(shipment_doc, "transit_route", None) and len(shipment_doc.transit_route) > 0:
+            current_location = shipment_doc.transit_route[0].location
+    else:
+        progress = 0.5
+        current_leg_id = "main_haul"
+        current_vehicle = "Ship" if method_norm == "Ocean" else "Plane"
+        status_text = "Đang trên hành trình vận chuyển đa phương thức"
+        current_location = "Đang vận chuyển quốc tế"
+
+    # 5. Calculate Current Traversed Route based on Progress
+    if not full_route:
+        current_route = []
+    elif progress <= 0.0:
+        current_route = [full_route[0]]
+    elif progress >= 1.0:
+        current_route = full_route
+    else:
+        cut_index = max(1, int(len(full_route) * progress))
+        current_route = full_route[: cut_index + 1]
+
+    # 6. Extract Transit Checkpoints (Milestones) from Child Table
+    checkpoints = []
+    if shipment_doc and getattr(shipment_doc, "transit_route", None):
+        for r in shipment_doc.transit_route:
+            c_coords = get_location_coords(r.location)
+            checkpoints.append({
+                "location": r.location,
+                "activity": r.activity,
+                "date": str(r.date) if r.date else "",
+                "coordinates": [c_coords[0], c_coords[1]] if c_coords else None,
+            })
 
     return {
         "status": "success",
+        "success": True,
         "data": {
-            "method": method,
+            "method": method_norm,
             "route": current_route,
-            "full_route": route_coords,
+            "full_route": full_route,
+            "legs": legs,
+            "distance_km": distance_km,
+            "progress": progress,
+            "progress_thresholds": progress_thresholds,
+            "status_text": status_text,
+            "current_location": current_location,
+            "current_leg_id": current_leg_id,
+            "current_vehicle": current_vehicle,
+            "docname": docname,
+            "doctype": doctype,
+            "origin": origin_info,
+            "departure_hub": dhub_info,
+            "arrival_hub": ahub_info,
+            "destination": dest_info,
+            "checkpoints": checkpoints,
+            "cached": is_cached,
+            "waypoints_count": len(full_route),
+        },
+        "route": {
+            "type": "Multimodal",
+            "coordinates": full_route,
+            "legs": legs,
+            "method": method_norm,
+            "distance_km": distance_km,
+            "cached": is_cached,
+        },
+        "tracking": {
+            "method": method_norm,
             "progress": progress,
             "status_text": status_text,
             "current_location": current_location,
-            "docname": docname
-        }
+            "current_vehicle": current_vehicle,
+            "docname": docname,
+        },
+        "progress": progress,
     }
+
+
+__all__ = [
+    "WORKFLOW_STEPS",
+    "get_workflow_chain_status",
+    "get_active_shipments",
+    "get_shipment_tracking",
+    "get_route_coordinates",
+    "get_location_coords",
+    "get_location_details",
+    "load_locations_data",
+    "calculate_ocean_route",
+    "calculate_air_route",
+    "calculate_road_route",
+    "calculate_multimodal_route",
+    "great_circle_distance",
+    "geocode_location",
+    "get_maritime_waypoints",
+    "get_air_waypoints",
+    "build_route",
+    "sync_aftership",
+]
