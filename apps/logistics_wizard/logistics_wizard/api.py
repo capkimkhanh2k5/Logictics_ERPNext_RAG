@@ -342,6 +342,8 @@ def sync_transit_route_with_status(shipment_doc, ahub_name=None, dest_name=None)
 
     def is_customs(text):
         t = (text or "").lower()
+        if "export" in t or "xuất khẩu" in t:
+            return False
         return "customs" in t or "thông quan" in t or "hải quan" in t
 
     def is_delivered(text):
