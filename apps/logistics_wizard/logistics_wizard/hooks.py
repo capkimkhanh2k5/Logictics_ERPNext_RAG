@@ -22,3 +22,9 @@ override_whitelisted_methods = {
 doctype_js = {
     "Shipment Tracking": "public/js/shipment_tracking.js"
 }
+
+doc_events = {
+    "Shipment Tracking": {
+        "validate": "logistics_wizard.api.on_shipment_tracking_validate"
+    }
+}

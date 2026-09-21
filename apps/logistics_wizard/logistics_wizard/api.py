@@ -187,18 +187,31 @@ def get_shipment_tracking(docname: Optional[str] = None,
     # 4. Determine Progress, Current Leg & Vehicle State
     check_status = (shipment_doc.status if shipment_doc else status) or "Draft"
 
+    origin_name = origin_info.get("name") or "Kho nhà máy Cupertino"
+    ahub_name = ahub_info.get("name") or "Cảng/Sân bay đến"
+    dest_name = dest_info.get("name") or "Kho Logistics Cáp Kim Khánh Đà Nẵng"
+
+    if shipment_doc:
+        changed = sync_transit_route_with_status(shipment_doc, ahub_name, dest_name)
+        if changed:
+            try:
+                shipment_doc.save(ignore_permissions=True)
+                frappe.db.commit()
+            except Exception as e:
+                frappe.log_error(f"Error saving synced transit route: {e}", "Logistics Wizard")
+
     if check_status in ["Completed", "Received", "Closed", "Giao hàng thành công", "Delivered"]:
         progress = 1.0
-        status_text = "Đã giao hàng thành công tại Kho Cáp Kim Khánh Đà Nẵng"
-        current_location = dest_info.get("name") or "Kho Cáp Kim Khánh Đà Nẵng (KCN Hòa Khánh)"
+        status_text = f"Đã giao hàng thành công tại {dest_name}"
+        current_location = dest_name
         current_leg_id = "last_mile"
         current_vehicle = "Truck"
     elif check_status == "Customs Clearance":
         progress = max(0.85, progress_thresholds[2] if len(progress_thresholds) > 2 else 0.85)
-        status_text = "Đang thông quan hải quan tại Cảng/Sân bay Đà Nẵng"
-        current_location = ahub_info.get("name") or "Cảng Tiên Sa / Sân bay Đà Nẵng"
-        current_leg_id = "last_mile"
-        current_vehicle = "Truck"
+        status_text = f"Đang làm thủ tục thông quan hải quan tại {ahub_name}"
+        current_location = ahub_name
+        current_leg_id = "customs"
+        current_vehicle = "Ship" if method_norm == "Ocean" else ("Plane" if method_norm == "Air" else "Truck")
     elif check_status == "In Transit" or (doctype == "Purchase Order" and docstatus == 1 and check_status not in ["Draft", "Cancelled"]):
         progress = 0.55
         current_leg_id = "main_haul"
@@ -218,8 +231,8 @@ def get_shipment_tracking(docname: Optional[str] = None,
             current_location = shipment_doc.transit_route[-1].location
     elif check_status == "Draft" or (doctype == "Purchase Order" and docstatus in [0, 2]):
         progress = 0.0
-        status_text = "Chờ xuất kho tại nguồn (Draft)"
-        current_location = origin_info.get("name") or "Kho nhà máy Cupertino"
+        status_text = f"Chờ xuất kho tại nguồn ({origin_name})"
+        current_location = origin_name
         current_leg_id = "first_mile"
         current_vehicle = "Truck"
         if shipment_doc and getattr(shipment_doc, "transit_route", None) and len(shipment_doc.transit_route) > 0:
@@ -244,15 +257,24 @@ def get_shipment_tracking(docname: Optional[str] = None,
 
     # 6. Extract Transit Checkpoints (Milestones) from Child Table
     checkpoints = []
-    if shipment_doc and getattr(shipment_doc, "transit_route", None):
-        for r in shipment_doc.transit_route:
+    if shipment_doc and getattr(shipment_doc, "transit_route", None) and len(shipment_doc.transit_route) > 0:
+        has_any_curr = any("(Current Position)" in (r.activity or "") for r in shipment_doc.transit_route)
+        for idx, r in enumerate(shipment_doc.transit_route):
             c_coords = get_location_coords(r.location)
+            is_curr = "(Current Position)" in (r.activity or "")
+            if not has_any_curr and idx == len(shipment_doc.transit_route) - 1 and check_status not in ["Draft", "Cancelled"]:
+                is_curr = True
+            clean_act = (r.activity or "").replace(" (Current Position)", "").replace("(Current Position)", "").strip()
             checkpoints.append({
                 "location": r.location,
-                "activity": r.activity,
+                "activity": clean_act,
+                "is_current": is_curr,
                 "date": str(r.date) if r.date else "",
                 "coordinates": [c_coords[0], c_coords[1]] if c_coords else None,
+                "notes": getattr(r, "notes", "") or ""
             })
+    else:
+        checkpoints = generate_fallback_checkpoints(origin_name, dhub_name, ahub_name, dest_name, check_status, method_norm)
 
     return {
         "status": "success",
@@ -299,6 +321,186 @@ def get_shipment_tracking(docname: Optional[str] = None,
     }
 
 
+def sync_transit_route_with_status(shipment_doc, ahub_name=None, dest_name=None):
+    """
+    Synchronizes Shipment Tracking transit_route child table with current status.
+    Ensures milestones accurately reflect Customs Clearance and Delivery states.
+    """
+    if not shipment_doc:
+        return False
+    status = getattr(shipment_doc, "status", None) or "Draft"
+    ahub = ahub_name or getattr(shipment_doc, "destination_port", None) or "Cảng Hải Phòng (Khu bến Đình Vũ / Chùa Vẽ)"
+    dest = dest_name or "Kho bãi Logistics Cáp Kim Khánh Đà Nẵng (Gần ĐH Bách Khoa)"
+
+    routes = shipment_doc.get("transit_route") or []
+    modified = False
+
+    def clean_activity(text):
+        if not text:
+            return ""
+        return text.replace(" (Current Position)", "").replace("(Current Position)", "").strip()
+
+    def is_customs(text):
+        t = (text or "").lower()
+        return "customs" in t or "thông quan" in t or "hải quan" in t
+
+    def is_delivered(text):
+        t = (text or "").lower()
+        return "delivered" in t or "giao hàng thành công" in t or "nhập kho" in t
+
+    has_customs = any(is_customs(r.activity) for r in routes)
+    has_delivered = any(is_delivered(r.activity) for r in routes)
+
+    today_date = str(frappe.utils.today())
+
+    if status == "Customs Clearance":
+        for r in routes:
+            cleaned = clean_activity(r.activity)
+            if cleaned != r.activity:
+                r.activity = cleaned
+                modified = True
+
+        if not has_customs:
+            shipment_doc.append("transit_route", {
+                "date": today_date,
+                "activity": "Làm thủ tục thông quan Hải quan (Customs Clearance) (Current Position)",
+                "location": ahub,
+                "notes": f"Lô hàng cập cảng/sân bay đích thực tế ngày {frappe.utils.format_date(today_date, 'dd/MM/yyyy')}, đang tiến hành mở tờ khai hải quan thông quan."
+            })
+            modified = True
+        else:
+            for r in routes:
+                if is_customs(r.activity):
+                    if "(Current Position)" not in (r.activity or ""):
+                        r.activity = clean_activity(r.activity) + " (Current Position)"
+                        modified = True
+                    if str(r.date) != today_date:
+                        r.date = today_date
+                        modified = True
+
+    elif status in ["Completed", "Received", "Closed", "Giao hàng thành công", "Delivered"]:
+        for r in routes:
+            cleaned = clean_activity(r.activity)
+            if cleaned != r.activity:
+                r.activity = cleaned
+                modified = True
+
+        if not has_customs:
+            shipment_doc.append("transit_route", {
+                "date": today_date,
+                "activity": "Làm thủ tục thông quan Hải quan (Customs Clearance)",
+                "location": ahub,
+                "notes": "Hoàn tất thủ tục thông quan hải quan."
+            })
+            modified = True
+
+        if not has_delivered:
+            shipment_doc.append("transit_route", {
+                "date": today_date,
+                "activity": "Đã giao hàng thành công tại Kho đích (Delivered) (Current Position)",
+                "location": dest,
+                "notes": f"Đã vận chuyển chặng cuối an toàn và nhập kho hoàn tất ngày {frappe.utils.format_date(today_date, 'dd/MM/yyyy')}."
+            })
+            modified = True
+        else:
+            for r in routes:
+                if is_delivered(r.activity):
+                    if "(Current Position)" not in (r.activity or ""):
+                        r.activity = clean_activity(r.activity) + " (Current Position)"
+                        modified = True
+                    if str(r.date) != today_date:
+                        r.date = today_date
+                        modified = True
+
+    elif status == "In Transit":
+        to_remove = [i for i, r in enumerate(routes) if is_customs(r.activity) or is_delivered(r.activity)]
+        if to_remove:
+            for idx in reversed(to_remove):
+                routes.pop(idx)
+            modified = True
+
+        for r in routes:
+            cleaned = clean_activity(r.activity)
+            if cleaned != r.activity:
+                r.activity = cleaned
+                modified = True
+
+        if routes:
+            last_r = routes[-1]
+            if "(Current Position)" not in (last_r.activity or ""):
+                last_r.activity = clean_activity(last_r.activity) + " (Current Position)"
+                modified = True
+
+    return modified
+
+
+def generate_fallback_checkpoints(origin_name, dhub_name, ahub_name, dest_name, check_status, method_norm):
+    """
+    Generates dynamic checkpoints when transit_route is empty or unavailable.
+    """
+    today_str = str(frappe.utils.today())
+    past_date_1 = str(frappe.utils.add_days(today_str, -12))
+    past_date_2 = str(frappe.utils.add_days(today_str, -10))
+    past_date_3 = str(frappe.utils.add_days(today_str, -4))
+    
+    cps = [
+        {
+            "date": past_date_1,
+            "activity": "Đóng gói & Niêm phong Container tại Kho nguồn",
+            "location": origin_name,
+            "is_current": (check_status == "Draft"),
+            "notes": "Hoàn tất đóng seal kiểm tra chất lượng tại nhà máy."
+        },
+        {
+            "date": past_date_2,
+            "activity": f"Xuất phát từ {'Cảng biển' if method_norm == 'Ocean' else 'Sân bay'} xuất khẩu",
+            "location": dhub_name,
+            "is_current": False,
+            "notes": "Phương tiện vận tải rời trạm trung chuyển xuất phát."
+        }
+    ]
+
+    if check_status in ["In Transit", "Customs Clearance", "Completed", "Received", "Closed", "Delivered"]:
+        cps.append({
+            "date": past_date_3,
+            "activity": f"Hành trình vận chuyển {'trên biển' if method_norm == 'Ocean' else 'đường hàng không'} quốc tế",
+            "location": "Hải phận Quốc tế Thái Bình Dương",
+            "is_current": (check_status == "In Transit"),
+            "notes": "Hành trình ổn định, hệ thống AIS / ADS-B định vị liên tục."
+        })
+
+    if check_status in ["Customs Clearance", "Completed", "Received", "Closed", "Delivered"]:
+        cps.append({
+            "date": today_str,
+            "activity": "Làm thủ tục thông quan Hải quan (Customs Clearance)",
+            "location": ahub_name,
+            "is_current": (check_status == "Customs Clearance"),
+            "notes": "Lô hàng cập cảng đến, đang giải phóng tờ khai hải quan nhập khẩu."
+        })
+
+    if check_status in ["Completed", "Received", "Closed", "Delivered"]:
+        cps.append({
+            "date": today_str,
+            "activity": "Đã giao hàng thành công tại Kho đích (Delivered)",
+            "location": dest_name,
+            "is_current": True,
+            "notes": "Hàng đã nhập kho đầy đủ và hoàn tất kiểm đếm."
+        })
+
+    return cps
+
+
+def on_shipment_tracking_validate(doc, method=None):
+    """
+    Hook called when Shipment Tracking is validated/saved in Frappe desk.
+    Automatically keeps transit_route child table synchronized with the selected status.
+    """
+    try:
+        sync_transit_route_with_status(doc)
+    except Exception as e:
+        frappe.log_error(f"Error in on_shipment_tracking_validate: {e}", "Logistics Wizard")
+
+
 __all__ = [
     "WORKFLOW_STEPS",
     "get_workflow_chain_status",
@@ -318,4 +520,6 @@ __all__ = [
     "get_air_waypoints",
     "build_route",
     "sync_aftership",
+    "sync_transit_route_with_status",
+    "on_shipment_tracking_validate",
 ]
