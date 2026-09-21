@@ -56,7 +56,7 @@ for subdir in ["js", "css", "css-rtl"]:
             base_name = parts[0] + "." + parts[2]
             url_path = f"/assets/logistics_wizard/dist/{subdir}/{f}"
             if subdir == "css-rtl":
-                new_rtl_entries[base_name] = url_path
+                new_rtl_entries["rtl_" + base_name] = url_path
             else:
                 new_entries[base_name] = url_path
             

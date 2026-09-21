@@ -1,6 +1,6 @@
 console.log("SMART WORKFLOW WIDGET SCRIPT LOADED");
 
-$(document).ready(function() {
+$(document).ready(function () {
     // 6-step workflow configuration
     const WORKFLOW_STEPS = [
         { doctype: "Material Request", id: "wiz-Material-Request", slug: "material-request", label: "1. Yêu cầu mua hàng (Material Request)" },
@@ -17,6 +17,17 @@ $(document).ready(function() {
     let mapMarkers = [];
     let seaOverlayLayer = null;
     let currentAnimationId = null;
+
+    // Intercept Leaflet popup close button clicks globally to prevent Frappe router hijacking (#close)
+    $(document).on('click', '.leaflet-popup-close-button', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (shipmentMap) {
+            shipmentMap.closePopup();
+        }
+        return false;
+    });
 
     // Professional SVG Vehicle Icons (Top-down AIS & FlightRadar24 Silhouettes)
     function get_vehicle_svg(method) {
@@ -160,7 +171,7 @@ $(document).ready(function() {
             $('body').append(fab_html);
 
             // Bind Events
-            $('#lw-fab-main').on('click', function() {
+            $('#lw-fab-main').on('click', function () {
                 $(this).toggleClass('active');
                 if ($(this).hasClass('active')) {
                     $('#lw-fab-menu').addClass('show');
@@ -170,24 +181,24 @@ $(document).ready(function() {
                 }
             });
 
-            $('.lw-sub-fab').on('click', function() {
+            $('.lw-sub-fab').on('click', function () {
                 let target = $(this).attr('id').replace('lw-fab-', 'lw-popup-');
                 $('.lw-popup').hide();
                 $('#' + target).show();
-                
+
                 if (target === 'lw-popup-shipment') {
                     open_shipment_view();
                 }
             });
 
-            $('.lw-popup-close').on('click', function() {
+            $('.lw-popup-close').on('click', function () {
                 $($(this).data('target')).hide();
                 if (currentAnimationId) {
                     cancelAnimationFrame(currentAnimationId);
                     currentAnimationId = null;
                 }
                 if (shipmentMap) {
-                    try { shipmentMap.remove(); } catch(e) {}
+                    try { shipmentMap.remove(); } catch (e) { }
                     shipmentMap = null;
                     seaOverlayLayer = null;
                 }
@@ -205,66 +216,125 @@ $(document).ready(function() {
         }
     }
 
-    // List all active shipments
-    function show_active_shipments_list() {
+    // List shipments with interactive Status Filter Combobox
+    function show_active_shipments_list(selectedFilter = 'active') {
         let $content = $('#lw-shipment-content');
-        $content.html(`
-            <div style="text-align: center; padding: 20px; color: #6c757d;">
-                <div class="spinner-border text-primary" role="status"></div>
-                <div style="margin-top: 10px;">Đang tải danh sách lô hàng đang vận chuyển...</div>
+
+        let headerHtml = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 8px;">
+                <div style="flex: 1; min-width: 0;">
+                    <strong style="color: #1f272e; font-size: 13.5px;">Danh sách Lô hàng Quốc tế:</strong>
+                    <div style="font-size: 11px; color: #6c757d; margin-top: 2px;">Nhấn vào đơn hàng để xem bản đồ lộ trình trực tiếp:</div>
+                </div>
+                <div style="flex-shrink: 0;">
+                    <select id="lw-filter-status" class="form-control" style="font-size: 11.5px; height: 28px; border-radius: 6px; border: 1px solid #ced4da; background-color: #ffffff; padding: 1px 6px; cursor: pointer; min-width: 145px; font-weight: 500; color: #1f272e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                        <option value="active" ${selectedFilter === 'active' ? 'selected' : ''}>🚚 Đang vận chuyển</option>
+                        <option value="completed" ${selectedFilter === 'completed' ? 'selected' : ''}>✅ Đã hoàn thành</option>
+                        <option value="customs" ${selectedFilter === 'customs' ? 'selected' : ''}>🏛️ Đang thông quan</option>
+                        <option value="all" ${selectedFilter === 'all' ? 'selected' : ''}>🌐 Tất cả đơn hàng</option>
+                    </select>
+                </div>
+            </div>
+            <div id="lw-shipment-items-container">
+                <div style="text-align: center; padding: 25px; color: #6c757d;">
+                    <div class="spinner-border text-primary" role="status" style="width: 1.8rem; height: 1.8rem;"></div>
+                    <div style="margin-top: 8px; font-size: 12px;">Đang tải danh sách lô hàng...</div>
+                </div>
+            </div>
+        `;
+
+        $content.html(headerHtml);
+
+        $('#lw-filter-status').on('change', function () {
+            let filterVal = $(this).val();
+            fetch_and_render_shipments_items(filterVal);
+        });
+
+        fetch_and_render_shipments_items(selectedFilter);
+    }
+
+    function fetch_and_render_shipments_items(filterVal) {
+        let $itemsContainer = $('#lw-shipment-items-container');
+        $itemsContainer.html(`
+            <div style="text-align: center; padding: 25px; color: #6c757d;">
+                <div class="spinner-border text-primary" role="status" style="width: 1.8rem; height: 1.8rem;"></div>
+                <div style="margin-top: 8px; font-size: 12px;">Đang lọc danh sách đơn hàng...</div>
             </div>
         `);
 
         frappe.call({
             method: 'logistics_wizard.api.get_active_shipments',
-            callback: function(r) {
+            args: { status_filter: filterVal },
+            callback: function (r) {
                 if (r.message && r.message.status === 'success') {
                     let pos = r.message.data || [];
                     if (pos.length === 0) {
-                        $content.html(`
+                        let filterLabel = (filterVal === 'active') ? 'đang vận chuyển' : ((filterVal === 'completed') ? 'đã hoàn thành' : ((filterVal === 'customs') ? 'đang làm thủ tục thông quan' : ''));
+                        $itemsContainer.html(`
                             <div style="text-align: center; padding: 35px 20px; color: #8d99a6;">
                                 <div style="font-size: 32px; margin-bottom: 8px;">📦</div>
-                                <strong>Không có đơn hàng nào đang vận chuyển.</strong>
-                                <p style="font-size: 12px; margin-top: 6px;">Hãy tạo Purchase Order hoặc mở một đơn hàng để xem bản đồ hành trình.</p>
+                                <strong>Không có đơn hàng nào ${filterLabel}.</strong>
+                                <p style="font-size: 12px; margin-top: 6px;">Hãy thử chọn bộ lọc khác (ví dụ "Toàn bộ đơn hàng") để xem tất cả.</p>
                             </div>
                         `);
                         return;
                     }
 
-                    let html = `
-                        <div style="margin-bottom: 12px;">
-                            <strong style="color: #1f272e; font-size: 14px;">Danh sách Lô hàng Quốc tế Đang Vận chuyển:</strong>
-                            <div style="font-size: 12px; color: #6c757d;">Nhấn vào đơn hàng để xem bản đồ lộ trình trực tiếp:</div>
-                        </div>
-                        <div class="lw-shipment-list" style="display: flex; flex-direction: column; gap: 8px;">
-                    `;
+                    let html = `<div class="lw-shipment-list" style="display: flex; flex-direction: column; gap: 8px;">`;
 
                     pos.forEach(p => {
+                        let badgeBg = '#e7f1ff';
+                        let badgeColor = '#007AFF';
+                        let badgeIcon = '🚚';
+
+                        if (p.is_completed || p.status === 'Completed') {
+                            badgeBg = '#e6f4ea';
+                            badgeColor = '#137333';
+                            badgeIcon = '✅';
+                        } else if (p.is_customs || p.status === 'Customs Clearance') {
+                            badgeBg = '#fef7e0';
+                            badgeColor = '#b06000';
+                            badgeIcon = '🏛️';
+                        } else if (p.status === 'Draft') {
+                            badgeBg = '#f1f3f4';
+                            badgeColor = '#5f6368';
+                            badgeIcon = '📝';
+                        }
+
+                        let methodIcon = (p.shipping_method === 'Air') ? '✈️' : ((p.shipping_method === 'Ocean') ? '🚢' : '🚚');
+                        let routeHint = (p.origin_port && p.destination_port) ? ` &bull; ${p.origin_port} → ${p.destination_port}` : '';
+
                         html += `
                             <div class="lw-shipment-item" data-name="${p.name}" style="padding: 12px 14px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <strong style="color: #007AFF; font-size: 13px;">${p.name}</strong>
-                                    <span class="badge" style="background: #e7f1ff; color: #007AFF; font-weight: 500; font-size: 11px;">${p.status}</span>
+                                    <div>
+                                        <strong style="color: #007AFF; font-size: 13px;">${p.name}</strong>
+                                        <span style="font-size: 11px; color: #6c757d; margin-left: 6px;">${methodIcon}${routeHint}</span>
+                                    </div>
+                                    <span class="badge" style="background: ${badgeBg}; color: ${badgeColor}; font-weight: 500; font-size: 11px; padding: 4px 8px; border-radius: 4px;">
+                                        ${badgeIcon} ${p.status}
+                                    </span>
                                 </div>
-                                <div style="font-size: 12px; color: #495057; margin-top: 4px;">
-                                    <strong>Nhà cung cấp:</strong> ${p.supplier_name || 'N/A'}
+                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #495057; margin-top: 5px;">
+                                    <div><strong>Nhà cung cấp:</strong> ${p.supplier_name || 'N/A'}</div>
+                                    ${p.shipment_tracking ? `<span style="color: #6c757d; font-size: 11px;">Vận đơn: <strong>${p.shipment_tracking}</strong></span>` : ''}
                                 </div>
                             </div>
                         `;
                     });
 
                     html += `</div>`;
-                    $content.html(html);
+                    $itemsContainer.html(html);
 
                     $('.lw-shipment-item').hover(
-                        function() { $(this).css({ 'background': '#eef5ff', 'border-color': '#b8d5fd' }); },
-                        function() { $(this).css({ 'background': '#f8f9fa', 'border-color': '#e9ecef' }); }
-                    ).on('click', function() {
+                        function () { $(this).css({ 'background': '#eef5ff', 'border-color': '#b8d5fd' }); },
+                        function () { $(this).css({ 'background': '#f8f9fa', 'border-color': '#e9ecef' }); }
+                    ).on('click', function () {
                         let name = $(this).data('name');
                         load_shipment_map(name, 'Purchase Order');
                     });
                 } else {
-                    $content.html('<div style="text-align: center; color: red; padding: 20px;">Lỗi tải danh sách vận chuyển.</div>');
+                    $itemsContainer.html('<div style="text-align: center; color: red; padding: 20px;">Lỗi tải danh sách vận chuyển.</div>');
                 }
             }
         });
@@ -296,18 +366,18 @@ $(document).ready(function() {
                     <div style="font-weight: 600; font-size: 13px; color: #343a40; margin-bottom: 8px;">
                         Lộ trình Vận chuyển Chi tiết (Transit Checkpoints):
                     </div>
-                    <div id="lw-timeline-container" style="max-height: 180px; overflow-y: auto;"></div>
+                    <div id="lw-timeline-container" style="margin-top: 6px;"></div>
                 </div>
             </div>
         `);
 
-        $('#lw-btn-back-shipments').on('click', function() {
+        $('#lw-btn-back-shipments').on('click', function () {
             if (currentAnimationId) {
                 cancelAnimationFrame(currentAnimationId);
                 currentAnimationId = null;
             }
             if (shipmentMap) {
-                try { shipmentMap.remove(); } catch(e) {}
+                try { shipmentMap.remove(); } catch (e) { }
                 shipmentMap = null;
                 seaOverlayLayer = null;
             }
@@ -318,7 +388,7 @@ $(document).ready(function() {
         frappe.call({
             method: 'logistics_wizard.api.get_shipment_tracking',
             args: { docname: docname, doctype: doctype },
-            callback: function(r) {
+            callback: function (r) {
                 if (r.message && r.message.status === 'success') {
                     init_map(r.message.data, docname, doctype);
                 } else {
@@ -512,7 +582,7 @@ $(document).ready(function() {
      * Features dynamic vehicle morphing (Truck 🚚 -> Ship 🚢 / Plane ✈️ -> Truck 🚚)
      * based on multimodal progress thresholds and real-time tangent bearing rotation.
      */
-    function animateVehicle(marker, coords, targetProgress, durationMs = 1500, legs = [], thresholds = [0, 0.05, 0.95, 1], mainMethod = 'Ocean') {
+    function animateVehicle(marker, coords, targetProgress, durationMs = 1500, legs = [], thresholds = [0, 0.05, 0.95, 1], mainMethod = 'Ocean', trackingData = null) {
         if (currentAnimationId) {
             cancelAnimationFrame(currentAnimationId);
             currentAnimationId = null;
@@ -543,13 +613,22 @@ $(document).ready(function() {
             let activeDesc = 'Chặng 1: Vận chuyển đường bộ (First-mile Road)';
             let borderColor = '#FF9500';
 
+            const isNearArrivalHub = Math.abs(curP - p2) <= 0.015 || (curP >= p2 && Math.abs(clampedTarget - p2) <= 0.02);
+
             if (curP <= p1) {
                 activeMode = 'Road';
                 activeDesc = 'Chặng 1: Xe tải container vận chuyển ra Cảng/Sân bay xuất phát';
                 borderColor = '#FF9500';
-            } else if (curP <= p2) {
+            } else if (isNearArrivalHub) {
                 activeMode = mainMethod;
-                activeDesc = (mainMethod === 'Air') 
+                let hubName = (trackingData && trackingData.arrival_hub && trackingData.arrival_hub.name)
+                    ? trackingData.arrival_hub.name
+                    : 'Cảng/Sân bay đến';
+                activeDesc = 'Đã cập bến và đang làm thủ tục thông quan hải quan tại ' + hubName;
+                borderColor = '#28a745';
+            } else if (curP < p2) {
+                activeMode = mainMethod;
+                activeDesc = (mainMethod === 'Air')
                     ? 'Chặng 2: Máy bay vận tải đang bay qua không phận Quốc tế (Air Transit)'
                     : 'Chặng 2: Tàu container đang vượt hải trình Thái Bình Dương (Ocean Transit)';
                 borderColor = (mainMethod === 'Air') ? '#007AFF' : '#0055B3';
@@ -572,10 +651,6 @@ $(document).ready(function() {
                     if (svgEl) {
                         svgEl.innerHTML = get_vehicle_svg(activeMode);
                     }
-                    if (marker.getPopup && marker.getPopup()) {
-                        const vehName = (activeMode === 'Ocean') ? 'Tàu biển 🚢' : ((activeMode === 'Air') ? 'Máy bay ✈️' : 'Xe tải Container 🚚');
-                        marker.setPopupContent(`<b>Phương tiện: ${vehName}</b><br>${activeDesc}<br><small>Tiến trình toàn trình: ${(curP * 100).toFixed(1)}%</small>`);
-                    }
                 }
 
                 // Update heading orientation with bearing rotation
@@ -592,10 +667,45 @@ $(document).ready(function() {
                 currentAnimationId = requestAnimationFrame(frame);
             } else {
                 currentAnimationId = null;
+
+                // Precision Milestone Snap: Snap exactly to anchor coordinates when vehicle arrives at station
+                if (clampedTarget <= 0.001) {
+                    marker.setLatLng(coords[0]);
+                } else if (Math.abs(clampedTarget - p2) <= 0.02) {
+                    let snapCoord = (trackingData && trackingData._ahCoord) ? trackingData._ahCoord : null;
+                    if (!snapCoord && trackingData && trackingData.arrival_hub && trackingData.arrival_hub.coordinates) {
+                        snapCoord = [
+                            trackingData.arrival_hub.coordinates[0],
+                            alignLongitude(trackingData.arrival_hub.coordinates[1], coords[coords.length - 1][1])
+                        ];
+                    }
+                    if (snapCoord) {
+                        marker.setLatLng([snapCoord[0], snapCoord[1]]);
+                    }
+                } else if (clampedTarget >= 0.999) {
+                    marker.setLatLng(coords[coords.length - 1]);
+                }
+
+                // Fix progress text in popup content on animation completion
+                if (marker.getPopup && marker.getPopup()) {
+                    const finalVehName = (activeMode === 'Ocean') ? 'Tàu biển 🚢' : ((activeMode === 'Air') ? 'Máy bay ✈️' : 'Xe tải Container 🚚');
+                    marker.setPopupContent(`<b>Phương tiện: ${finalVehName}</b><br>${activeDesc}<br><small>Tiến trình toàn trình: ${(clampedTarget * 100).toFixed(1)}%</small>`);
+                }
             }
         }
 
         currentAnimationId = requestAnimationFrame(frame);
+    }
+
+    /**
+     * Aligns target longitude to reference longitude to prevent 360-degree antimeridian jumps.
+     */
+    function alignLongitude(lon, refLon) {
+        if (typeof lon !== 'number' || typeof refLon !== 'number') return lon;
+        let adjusted = lon;
+        while (adjusted - refLon > 180) adjusted -= 360;
+        while (adjusted - refLon < -180) adjusted += 360;
+        return adjusted;
     }
 
     // Initialize Leaflet Map
@@ -612,7 +722,7 @@ $(document).ready(function() {
         }
 
         if (shipmentMap) {
-            try { shipmentMap.remove(); } catch(e) {}
+            try { shipmentMap.remove(); } catch (e) { }
             shipmentMap = null;
             seaOverlayLayer = null;
         }
@@ -627,6 +737,23 @@ $(document).ready(function() {
             attributionControl: true
         }).setView([20.0, 150.0], 3);
         window._lw_shipment_map = shipmentMap;
+
+        // Sanitize close buttons on any popup opened on this map to prevent #close routing error
+        shipmentMap.on('popupopen', function (e) {
+            if (e && e.popup && e.popup._container) {
+                $(e.popup._container).find('.leaflet-popup-close-button').each(function () {
+                    $(this).attr('href', 'javascript:void(0);')
+                        .attr('role', 'button')
+                        .on('click', function (ev) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            ev.stopImmediatePropagation();
+                            if (shipmentMap) shipmentMap.closePopup();
+                            return false;
+                        });
+                });
+            }
+        });
 
         // 1. OpenStreetMap Standard basemap (Free, No watermark, Max Zoom 19)
         Leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -691,7 +818,7 @@ $(document).ready(function() {
         try {
             let group = Leaflet.featureGroup(polylineLayers);
             shipmentMap.fitBounds(group.getBounds(), { padding: [40, 40], maxZoom: 8 });
-        } catch(e) {}
+        } catch (e) { }
 
         // 5. Origin Marker O (Origin - Kho nguồn, Green Badge)
         let originCoord = simplifiedCoords[0];
@@ -716,12 +843,23 @@ $(document).ready(function() {
             iconAnchor: [14, 14]
         });
         let dstMarker = Leaflet.marker(destCoord, { icon: destIcon }).addTo(shipmentMap);
-        dstMarker.bindPopup(`<b>Kho đích nhận hàng (Destination - Điểm D):</b><br>${destName}<br><small>Toạ độ: ${destCoord[0].toFixed(4)}, ${destCoord[1].toFixed(4)}</small>`);
+        let dispDestLon = ((destCoord[1] + 180) % 360 + 360) % 360 - 180;
+        dstMarker.bindPopup(`<b>Kho đích nhận hàng (Destination - Điểm D):</b><br>${destName}<br><small>Toạ độ: ${destCoord[0].toFixed(4)}, ${dispDestLon.toFixed(4)}</small>`);
         mapMarkers.push(dstMarker);
 
         // 7. Intermediary Hub Markers (Departure Hub & Arrival Hub: ⚓ / 🛫)
-        if (data.departure_hub && data.departure_hub.coordinates) {
-            let dhCoords = data.departure_hub.coordinates;
+        let dhCoord = null;
+        if (data.legs && data.legs.length >= 1 && data.legs[0].coordinates_latlon && data.legs[0].coordinates_latlon.length > 0) {
+            const leg1Coords = data.legs[0].coordinates_latlon;
+            dhCoord = leg1Coords[leg1Coords.length - 1];
+        } else if (data.departure_hub && data.departure_hub.coordinates) {
+            dhCoord = [
+                data.departure_hub.coordinates[0],
+                alignLongitude(data.departure_hub.coordinates[1], originCoord[1])
+            ];
+        }
+
+        if (dhCoord && data.departure_hub) {
             let dhIcon = Leaflet.divIcon({
                 className: 'custom-dep-hub-icon',
                 html: `<div style="background: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2.5px solid ${data.method === 'Air' ? '#007AFF' : '#0055B3'}; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer;" title="Trạm trung chuyển xuất phát">
@@ -730,13 +868,24 @@ $(document).ready(function() {
                 iconSize: [30, 30],
                 iconAnchor: [15, 15]
             });
-            let dhMarker = Leaflet.marker([dhCoords[0], dhCoords[1]], { icon: dhIcon }).addTo(shipmentMap);
-            dhMarker.bindPopup(`<b>Trạm trung chuyển xuất phát:</b><br>${data.departure_hub.name || 'Cảng/Sân bay xuất'}<br><small>Toạ độ: ${dhCoords[0].toFixed(4)}, ${dhCoords[1].toFixed(4)}</small>`);
+            let dhMarker = Leaflet.marker([dhCoord[0], dhCoord[1]], { icon: dhIcon }).addTo(shipmentMap);
+            let dispDhLon = ((dhCoord[1] + 180) % 360 + 360) % 360 - 180;
+            dhMarker.bindPopup(`<b>Trạm trung chuyển xuất phát:</b><br>${data.departure_hub.name || 'Cảng/Sân bay xuất'}<br><small>Toạ độ: ${dhCoord[0].toFixed(4)}, ${dispDhLon.toFixed(4)}</small>`);
             mapMarkers.push(dhMarker);
         }
 
-        if (data.arrival_hub && data.arrival_hub.coordinates) {
-            let ahCoords = data.arrival_hub.coordinates;
+        let ahCoord = null;
+        if (data.legs && data.legs.length >= 2 && data.legs[1].coordinates_latlon && data.legs[1].coordinates_latlon.length > 0) {
+            const leg2Coords = data.legs[1].coordinates_latlon;
+            ahCoord = leg2Coords[leg2Coords.length - 1];
+        } else if (data.arrival_hub && data.arrival_hub.coordinates) {
+            ahCoord = [
+                data.arrival_hub.coordinates[0],
+                alignLongitude(data.arrival_hub.coordinates[1], destCoord[1])
+            ];
+        }
+
+        if (ahCoord && data.arrival_hub) {
             let ahIcon = Leaflet.divIcon({
                 className: 'custom-arr-hub-icon',
                 html: `<div style="background: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2.5px solid ${data.method === 'Air' ? '#007AFF' : '#0055B3'}; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer;" title="Trạm trung chuyển đến">
@@ -745,10 +894,15 @@ $(document).ready(function() {
                 iconSize: [30, 30],
                 iconAnchor: [15, 15]
             });
-            let ahMarker = Leaflet.marker([ahCoords[0], ahCoords[1]], { icon: ahIcon }).addTo(shipmentMap);
-            ahMarker.bindPopup(`<b>Trạm trung chuyển đến:</b><br>${data.arrival_hub.name || 'Cảng/Sân bay đến'}<br><small>Toạ độ: ${ahCoords[0].toFixed(4)}, ${ahCoords[1].toFixed(4)}</small>`);
+            let ahMarker = Leaflet.marker([ahCoord[0], ahCoord[1]], { icon: ahIcon }).addTo(shipmentMap);
+            let dispAhLon = ((ahCoord[1] + 180) % 360 + 360) % 360 - 180;
+            ahMarker.bindPopup(`<b>Trạm trung chuyển đến:</b><br>${data.arrival_hub.name || 'Cảng/Sân bay đến'}<br><small>Toạ độ: ${ahCoord[0].toFixed(4)}, ${dispAhLon.toFixed(4)}</small>`);
             mapMarkers.push(ahMarker);
         }
+
+        // Store aligned hub coordinates inside tracking data for animation milestone snaps
+        data._dhCoord = dhCoord;
+        data._ahCoord = ahCoord;
 
         // 8. Vehicle Marker with Dynamic Morphing & requestAnimationFrame Animation
         let targetProgress = (typeof data.progress === 'number') ? data.progress : 0.55;
@@ -782,30 +936,75 @@ $(document).ready(function() {
         mapMarkers.push(vehMarker);
 
         // Trigger smooth vehicle animation with dynamic morphing (~1.6s)
-        animateVehicle(vehMarker, simplifiedCoords, targetProgress, 1600, data.legs || [], thresholds, data.method);
+        animateVehicle(vehMarker, simplifiedCoords, targetProgress, 1600, data.legs || [], thresholds, data.method, data);
 
         setTimeout(() => {
             if (vehMarker && shipmentMap && shipmentMap.hasLayer(vehMarker)) {
                 vehMarker.openPopup();
             }
-        }, 1600);
+        }, 1650);
 
-        // 9. Update Info Text
-        let methodBadge = (data.method === 'Air') 
-            ? '✈️ Đa phương thức Hàng không (Air Multimodal)' 
-            : ((data.method === 'Ocean') ? '🚢 Đa phương thức Đường biển (Ocean Multimodal)' : '🚚 Đường bộ (Inland Road)');
-        let distText = data.distance_km ? ` &bull; ${Math.round(data.distance_km).toLocaleString()} km` : '';
+        // 9. Update Info Card with Balanced 2-Tier Layout (Status Banner + 50/50 Dual Columns)
+        let methodIconText = (data.method === 'Air')
+            ? '✈️ Đa phương thức Hàng không (Air)'
+            : ((data.method === 'Ocean') ? '🚢 Đa phương thức Đường biển (Ocean)' : '🚚 Đường bộ nội địa (Road)');
+
+        let statusBg = '#e0f2fe';
+        let statusColor = '#0369a1';
+        let statusIcon = '🚢';
+
+        if (data.progress >= 1.0 || (data.status_text && (data.status_text.includes('giao hàng thành công') || data.status_text.includes('Hoàn thành')))) {
+            statusBg = '#dcfce7';
+            statusColor = '#15803d';
+            statusIcon = '✅';
+        } else if (data.status_text && (data.status_text.includes('thông quan') || data.status_text.includes('Hải quan') || data.status_text.includes('Customs'))) {
+            statusBg = '#fef3c7';
+            statusColor = '#b45309';
+            statusIcon = '🏛️';
+        } else if (data.method === 'Air') {
+            statusIcon = '✈️';
+        }
+
         let infoHtml = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <span><strong>Mô hình:</strong> ${methodBadge}${distText}</span>
-                <span class="badge" style="background: #e7f1ff; color: #007AFF;">${data.status_text}</span>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <!-- Tầng 1: Banner Trạng thái vận hành -->
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 7px 12px; border-radius: 6px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #64748b;">Trạng thái vận hành</span>
+                    <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 10px; white-space: normal; text-align: right; line-height: 1.3; max-width: 72%;">
+                        ${statusIcon} ${data.status_text}
+                    </span>
+                </div>
+
+                <!-- Tầng 2: 2 Khối 50-50 Cân xứng -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="background: #ffffff; padding: 9px 12px; border-radius: 6px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                        <div>
+                            <div style="font-size: 10.5px; color: #64748b; font-weight: 600; text-transform: uppercase; margin-bottom: 2px;">Mô hình vận tải</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #0f172a; line-height: 1.3;">${methodIconText}</div>
+                        </div>
+                        <div style="font-size: 11.5px; color: #0284c7; font-weight: 600; margin-top: 4px;">
+                            Cự ly: ${Math.round(data.distance_km || 0).toLocaleString()} km
+                        </div>
+                    </div>
+
+                    <div style="background: #ffffff; padding: 9px 12px; border-radius: 6px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                        <div>
+                            <div style="font-size: 10.5px; color: #64748b; font-weight: 600; text-transform: uppercase; margin-bottom: 2px;">Vị trí hiện tại</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #0284c7; line-height: 1.3; word-break: break-word;" title="${data.current_location}">
+                                📍 ${data.current_location}
+                            </div>
+                        </div>
+                        <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+                            Tiến trình: <strong style="color: #0284c7;">${Math.round((data.progress || 0) * 100)}%</strong>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div><strong>Vị trí hiện tại:</strong> <span style="color: #007AFF; font-weight: 500;">${data.current_location}</span></div>
         `;
         $('#lw-map-info-text').html(infoHtml);
 
         // 10. Render Checkpoints in Timeline
-        render_checkpoints_timeline(docname, doctype);
+        render_checkpoints_timeline(docname, doctype, data);
 
         // Invalidate map size after animation/popup display
         setTimeout(() => {
@@ -816,16 +1015,22 @@ $(document).ready(function() {
     }
 
     // Render Timeline below the map
-    function render_checkpoints_timeline(docname, doctype) {
+    function render_checkpoints_timeline(docname, doctype, data) {
         let $timeline = $('#lw-timeline-container');
-        
-        // If window.cur_frm is this document and has transit_route
-        if (window.cur_frm && cur_frm.doc && (cur_frm.doc.name === docname) && cur_frm.doc.transit_route && cur_frm.doc.transit_route.length > 0) {
-            draw_timeline_items(cur_frm.doc.transit_route, $timeline);
+
+        // Priority 1: Use enriched checkpoints directly from get_shipment_tracking API data
+        if (data && data.checkpoints && data.checkpoints.length > 0) {
+            draw_timeline_items(data.checkpoints, $timeline, data);
             return;
         }
 
-        // Otherwise fetch via frappe.db.get_doc
+        // Priority 2: If window.cur_frm is this document and has transit_route
+        if (window.cur_frm && cur_frm.doc && (cur_frm.doc.name === docname) && cur_frm.doc.transit_route && cur_frm.doc.transit_route.length > 0) {
+            draw_timeline_items(cur_frm.doc.transit_route, $timeline, data);
+            return;
+        }
+
+        // Priority 3: Otherwise fetch via frappe.db.get_doc
         let targetDocType = doctype;
         let targetDocName = docname;
 
@@ -833,7 +1038,7 @@ $(document).ready(function() {
             frappe.db.get_value('Shipment Tracking', { purchase_order: docname }, 'name').then(r => {
                 if (r && r.message && r.message.name) {
                     frappe.db.get_doc('Shipment Tracking', r.message.name).then(doc => {
-                        draw_timeline_items(doc.transit_route || [], $timeline);
+                        draw_timeline_items(doc.transit_route || [], $timeline, data);
                     });
                 } else {
                     $timeline.html('<div style="color: #8d99a6; font-size: 12px; padding: 8px 0;">Chưa liên kết phiếu Shipment Tracking hoặc chưa có lộ trình chi tiết.</div>');
@@ -841,27 +1046,42 @@ $(document).ready(function() {
             });
         } else if (doctype === 'Shipment Tracking') {
             frappe.db.get_doc('Shipment Tracking', docname).then(doc => {
-                draw_timeline_items(doc.transit_route || [], $timeline);
+                draw_timeline_items(doc.transit_route || [], $timeline, data);
             });
         } else {
             $timeline.html('<div style="color: #8d99a6; font-size: 12px; padding: 8px 0;">Không có dữ liệu lộ trình.</div>');
         }
     }
 
-    function draw_timeline_items(routes, $container) {
+    function draw_timeline_items(routes, $container, data) {
         if (!routes || routes.length === 0) {
             $container.html('<div style="color: #8d99a6; font-size: 12px; padding: 8px 0;">Chưa có trạm lộ trình nào.</div>');
             return;
         }
 
-        let html = '<div class="lw-timeline" style="margin-top: 5px;">';
+        let hasExplicitCurrent = routes.some(r => r.is_current === true || (r.activity && r.activity.includes('(Current Position)')));
+
+        let html = '<div class="lw-timeline">';
         routes.forEach((r, idx) => {
             let isLast = (idx === routes.length - 1);
+            let isCurrent = (r.is_current === true) || (r.activity && r.activity.includes('(Current Position)')) || (!hasExplicitCurrent && isLast);
+            let cleanActivity = (r.activity || '').replace(' (Current Position)', '').replace('(Current Position)', '').trim();
+
+            let itemClass = isCurrent ? 'lw-timeline-item current-step' : 'lw-timeline-item completed';
+            let badgeHtml = isCurrent
+                ? `<span class="lw-timeline-current-badge">📍 Vị trí hiện tại</span>`
+                : '';
+
             html += `
-                <div class="lw-timeline-item done">
-                    <div class="lw-timeline-date" style="font-size: 11px; color: #6c757d;">${r.date || ''}</div>
-                    <div class="lw-timeline-title" style="font-weight: 600; font-size: 13px; color: #1f272e;">${r.activity || ''}</div>
-                    <div class="lw-timeline-desc" style="font-size: 12px; color: #495057;">📍 ${r.location || ''}</div>
+                <div class="${itemClass}">
+                    <div class="lw-timeline-node"></div>
+                    <div class="lw-timeline-date">${r.date || ''}</div>
+                    <div class="lw-timeline-title">
+                        <span>${cleanActivity}</span>
+                        ${badgeHtml}
+                    </div>
+                    <div class="lw-timeline-desc">📍 ${r.location || ''}</div>
+                    ${r.notes ? `<div class="lw-timeline-notes">${r.notes}</div>` : ''}
                 </div>
             `;
         });
@@ -930,7 +1150,7 @@ $(document).ready(function() {
             frappe.call({
                 method: "logistics_wizard.api.get_workflow_chain_status",
                 args: { doctype: doctype, docname: docname },
-                callback: function(r) {
+                callback: function (r) {
                     reset_workflow_ui();
                     if (r && r.message && r.message.success) {
                         render_chain_status(r.message.steps);
@@ -960,10 +1180,10 @@ $(document).ready(function() {
         interpolateAtProgress: interpolateAtProgress,
         animateVehicle: animateVehicle,
         update_marine_overlay: update_marine_overlay,
-        getShipmentMap: function() { return shipmentMap; },
-        getSeaOverlayLayer: function() { return seaOverlayLayer; },
-        getMapPolyline: function() { return mapPolyline; },
-        getMapMarkers: function() { return mapMarkers; }
+        getShipmentMap: function () { return shipmentMap; },
+        getSeaOverlayLayer: function () { return seaOverlayLayer; },
+        getMapPolyline: function () { return mapPolyline; },
+        getMapMarkers: function () { return mapMarkers; }
     };
 
     setTimeout(update_widget_state, 300);

@@ -401,17 +401,68 @@ ASIA_AIR_HUBS = {
 # --------------------------------------------------------------------------
 
 @frappe.whitelist(allow_guest=True)
-def get_active_shipments():
-    """Trả về danh sách Purchase Order đang trong quá trình vận chuyển."""
+def get_active_shipments(status_filter="active"):
+    """
+    Trả về danh sách Purchase Order và thông tin vận chuyển tương ứng theo bộ lọc trạng thái:
+    - 'active' (mặc định): Đang vận chuyển (chưa hoàn thành và không phải Draft)
+    - 'completed': Đã hoàn thành (Completed, Closed, Received, Giao hàng thành công)
+    - 'customs': Đang làm thủ tục thông quan hải quan (Customs Clearance)
+    - 'all': Toàn bộ đơn hàng (ngoại trừ Cancelled docstatus=2)
+    """
+    filter_norm = str(status_filter or "active").strip().lower()
+
     pos = frappe.get_all(
         "Purchase Order",
-        filters={
-            "docstatus": 1,
-            "status": ["not in", ["Draft", "Completed", "Closed", "Received", "Cancelled", "Giao hàng thành công"]],
-        },
-        fields=["name", "status", "transaction_date", "supplier_name"],
+        fields=["name", "status", "docstatus", "transaction_date", "supplier_name", "grand_total", "currency"],
+        order_by="creation desc",
     )
-    return {"status": "success", "data": pos}
+    res = []
+    for p in pos:
+        if p.docstatus == 2:  # Bỏ qua các đơn bị hủy Cancelled
+            continue
+        st = frappe.db.get_value(
+            "Shipment Tracking",
+            {"purchase_order": p.name},
+            ["name", "status", "shipping_method", "origin_port", "destination_port"],
+            as_dict=True,
+        )
+        st_status = st.status if st else ("Draft" if p.docstatus == 0 else "In Transit")
+
+        # Xác định nhóm trạng thái
+        is_completed = (p.status in ["Completed", "Closed", "Received", "Giao hàng thành công"]) or (st and st.status in ["Completed", "Giao hàng thành công"])
+        is_customs = (st and st.status == "Customs Clearance")
+        is_draft = (p.docstatus == 0 or p.status == "Draft" or (st and st.status == "Draft"))
+        is_active = (not is_completed and not is_draft)
+
+        item = {
+            "name": p.name,
+            "po_status": p.status,
+            "supplier_name": p.supplier_name or "N/A",
+            "shipment_tracking": st.name if st else None,
+            "shipment_status": st_status,
+            "shipping_method": st.shipping_method if st else "Ocean",
+            "origin_port": st.origin_port if st else None,
+            "destination_port": st.destination_port if st else None,
+            "status": st_status if st else p.status,
+            "is_completed": is_completed,
+            "is_customs": is_customs,
+            "is_active": is_active,
+            "transaction_date": str(p.transaction_date) if p.transaction_date else None,
+        }
+
+        if filter_norm == "active" and is_active:
+            res.append(item)
+        elif filter_norm == "completed" and is_completed:
+            res.append(item)
+        elif filter_norm == "customs" and is_customs:
+            res.append(item)
+        elif filter_norm in ["all", "tat_ca"]:
+            res.append(item)
+        elif filter_norm not in ["active", "completed", "customs", "all", "tat_ca"]:
+            if st_status.lower() == filter_norm or p.status.lower() == filter_norm:
+                res.append(item)
+
+    return {"status": "success", "data": res, "filter": filter_norm, "count": len(res)}
 
 
 @frappe.whitelist(allow_guest=True)

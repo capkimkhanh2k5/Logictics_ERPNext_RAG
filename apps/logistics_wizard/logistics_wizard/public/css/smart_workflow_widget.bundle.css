@@ -1026,67 +1026,122 @@ svg.leaflet-image-layer.leaflet-interactive path {
     font-weight: 600;
 }
 
-/* Shipment Timeline Specific */
+/* ==========================================================================
+   Shipment Timeline - Impeccable Clean Design (No ghost lines / double dots)
+   ========================================================================== */
 .lw-timeline {
     position: relative;
-    padding-left: 28px;
+    padding: 6px 0 6px 8px;
+    margin-top: 4px;
 }
 .lw-timeline::before {
-    content: '';
-    position: absolute;
-    left: 8px;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background: var(--border-light);
+    display: none !important;
 }
 .lw-timeline-item {
     position: relative;
-    margin-bottom: 24px;
-    padding-bottom: 4px;
+    padding-left: 22px;
+    padding-bottom: 18px;
+    border-left: 2px solid #e2e8f0;
+    margin-bottom: 0 !important;
 }
 .lw-timeline-item:last-child {
-    margin-bottom: 0;
+    border-left-color: transparent !important;
+    padding-bottom: 2px;
 }
 .lw-timeline-item::before {
-    content: '';
+    display: none !important;
+}
+
+/* Timeline Marker Node */
+.lw-timeline-node {
     position: absolute;
-    left: -28px;
-    top: 4px;
-    width: 18px;
-    height: 18px;
+    left: -7px;
+    top: 2px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
-    background: #fff;
-    border: 3px solid var(--border-light);
-    z-index: 1;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    background: #10b981;
+    border: 2px solid #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    z-index: 2;
+    transition: all 0.25s ease;
 }
-.lw-timeline-item.done::before {
-    background: var(--accent-blue);
-    border-color: var(--accent-blue);
+
+/* Active / Current Step Node */
+.lw-timeline-item.current-step {
+    border-left: 2px solid #0071e3;
 }
-.lw-timeline-item.done .lw-timeline-title {
-    color: var(--text-main);
+.lw-timeline-item.current-step:last-child {
+    border-left-color: transparent !important;
 }
+.lw-timeline-item.current-step .lw-timeline-node {
+    left: -8px;
+    top: 1px;
+    width: 14px;
+    height: 14px;
+    background: #0071e3;
+    border: 2.5px solid #ffffff;
+    box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.25), 0 2px 5px rgba(0, 113, 227, 0.4);
+    animation: lw-pulse-node 2s infinite ease-in-out;
+}
+
+@keyframes lw-pulse-node {
+    0% { box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.25), 0 2px 4px rgba(0, 113, 227, 0.3); }
+    50% { box-shadow: 0 0 0 7px rgba(0, 113, 227, 0.08), 0 2px 8px rgba(0, 113, 227, 0.4); }
+    100% { box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.25), 0 2px 4px rgba(0, 113, 227, 0.3); }
+}
+
+/* Timeline Content Typography & Badges */
 .lw-timeline-date {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    color: var(--text-muted);
-    margin-bottom: 4px;
+    color: #64748b;
+    letter-spacing: 0.4px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    margin-bottom: 2px;
 }
 .lw-timeline-title {
+    font-size: 12.5px;
     font-weight: 600;
-    color: var(--text-muted);
-    font-size: 15px;
-    letter-spacing: -0.2px;
-    margin-bottom: 4px;
+    color: #0f172a;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.lw-timeline-current-badge {
+    background: linear-gradient(135deg, #0071e3, #0055d4);
+    color: #ffffff !important;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2.5px 8px;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 113, 227, 0.3);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    letter-spacing: 0.2px;
 }
 .lw-timeline-desc {
-    color: var(--text-muted);
-    font-size: 13px;
+    font-size: 12px;
+    color: #334155;
+    font-weight: 500;
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.lw-timeline-notes {
+    font-size: 11.5px;
+    color: #64748b;
+    margin-top: 4px;
     line-height: 1.4;
+    background: #f8fafc;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #f1f5f9;
+    display: inline-block;
 }
 
 /* Scrollbar styling for popups */
@@ -1107,9 +1162,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
 /* Large Popup for Map */
 .lw-popup-large {
-    width: 600px;
+    width: 620px;
     left: 104px;
     bottom: 32px;
+}
+.lw-popup-large .lw-popup-body {
+    max-height: calc(88vh - 70px);
 }
 @media (max-width: 768px) {
     .lw-popup-large {
