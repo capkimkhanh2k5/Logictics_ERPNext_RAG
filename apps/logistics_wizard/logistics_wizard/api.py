@@ -29,6 +29,7 @@ from .routing import (
     calculate_road_route,
     calculate_multimodal_route,
     great_circle_distance,
+    find_nearest_hub,
 )
 
 # 3. Module GEO & Legacy Tracking functions
@@ -116,7 +117,7 @@ def get_shipment_tracking(docname: Optional[str] = None,
 
     source_doc = po_doc or doc
     if source_doc:
-        # Origin Facility: supplier address or company
+        # Origin Facility: supplier address or supplier dynamic link
         if not origin_facility and getattr(source_doc, "supplier_address", None):
             try:
                 s_addr = frappe.get_doc("Address", source_doc.supplier_address)
@@ -128,29 +129,91 @@ def get_shipment_tracking(docname: Optional[str] = None,
             except Exception:
                 origin_facility = source_doc.supplier_address
 
+        if not origin_facility and getattr(source_doc, "supplier", None):
+            try:
+                links = frappe.get_all(
+                    "Dynamic Link",
+                    filters={"link_doctype": "Supplier", "link_name": source_doc.supplier, "parenttype": "Address"},
+                    fields=["parent"]
+                )
+                if links:
+                    s_addr = frappe.get_doc("Address", links[0].parent)
+                    parts = [p for p in [s_addr.city, s_addr.country] if p]
+                    if parts:
+                        origin_facility = ", ".join(parts)
+                    elif getattr(s_addr, "address_title", None):
+                        origin_facility = s_addr.address_title
+            except Exception:
+                pass
+
+        if not origin_facility:
+            origin_facility = getattr(source_doc, "supplier", None)
+
         # Destination Facility: warehouse or shipping address
         if not dest_facility:
-            dest_facility = getattr(source_doc, "set_warehouse", None) or getattr(source_doc, "shipping_address", None)
-            if dest_facility and frappe.db.exists("Address", dest_facility):
+            wh_name = getattr(source_doc, "set_warehouse", None) or (shipment_doc and getattr(shipment_doc, "warehouse", None))
+            if wh_name and frappe.db.exists("Warehouse", wh_name):
                 try:
-                    d_addr = frappe.get_doc("Address", dest_facility)
-                    parts = [p for p in [d_addr.city, d_addr.country] if p]
-                    if parts:
-                        dest_facility = ", ".join(parts)
-                    elif getattr(d_addr, "address_title", None):
-                        dest_facility = d_addr.address_title
+                    wh_doc = frappe.get_doc("Warehouse", wh_name)
+                    if getattr(wh_doc, "address", None) and frappe.db.exists("Address", wh_doc.address):
+                        d_addr = frappe.get_doc("Address", wh_doc.address)
+                        parts = [p for p in [d_addr.city, d_addr.country] if p]
+                        if parts:
+                            dest_facility = ", ".join(parts)
+                        elif getattr(d_addr, "address_title", None):
+                            dest_facility = d_addr.address_title
+                    if not dest_facility:
+                        dest_facility = getattr(wh_doc, "warehouse_name", None) or wh_name
+                except Exception:
+                    dest_facility = wh_name
+
+            if not dest_facility and getattr(source_doc, "shipping_address", None):
+                if frappe.db.exists("Address", source_doc.shipping_address):
+                    try:
+                        d_addr = frappe.get_doc("Address", source_doc.shipping_address)
+                        parts = [p for p in [d_addr.city, d_addr.country] if p]
+                        if parts:
+                            dest_facility = ", ".join(parts)
+                        elif getattr(d_addr, "address_title", None):
+                            dest_facility = d_addr.address_title
+                    except Exception:
+                        pass
+
+            if not dest_facility and getattr(source_doc, "company", None):
+                try:
+                    c_links = frappe.get_all(
+                        "Dynamic Link",
+                        filters={"link_doctype": "Company", "link_name": source_doc.company, "parenttype": "Address"},
+                        fields=["parent"]
+                    )
+                    if c_links:
+                        c_addr = frappe.get_doc("Address", c_links[0].parent)
+                        parts = [p for p in [c_addr.city, c_addr.country] if p]
+                        if parts:
+                            dest_facility = ", ".join(parts)
                 except Exception:
                     pass
+                if not dest_facility:
+                    dest_facility = getattr(source_doc, "company", None)
 
-    # Intelligent Fallbacks for US (Apple) -> VN (Da Nang) Corridor
+    # Dynamic default fallbacks
     if not origin_facility:
-        origin_facility = "apple_park_cupertino"
-    if not departure_hub:
-        departure_hub = "port_of_long_beach" if method_norm == "Ocean" else "san_francisco_airport"
-    if not arrival_hub:
-        arrival_hub = "da_nang_port" if method_norm == "Ocean" else "da_nang_airport"
+        origin_facility = "Kho nhà máy xuất phát"
     if not dest_facility:
-        dest_facility = "cap_khanh_warehouse"
+        dest_facility = "Kho đích nhận hàng"
+
+    target_hub_type = "seaport" if method_norm == "Ocean" else "airport"
+
+    # Resolve coordinates
+    o_coords = get_location_coords(origin_facility)
+    d_coords = get_location_coords(dest_facility)
+
+    # Dynamic nearest hub selection if not explicitly specified
+    if not departure_hub and o_coords:
+        departure_hub = find_nearest_hub(o_coords, target_hub_type)
+
+    if not arrival_hub and d_coords:
+        arrival_hub = find_nearest_hub(d_coords, target_hub_type)
 
     # 3. Dynamic Route Generation via Multimodal Routing Engine
     try:
@@ -179,17 +242,43 @@ def get_shipment_tracking(docname: Optional[str] = None,
         distance_km = route_legacy.get("distance_km", 0.0)
         is_cached = route_legacy.get("cached", False)
         progress_thresholds = [0.0, 0.05, 0.95, 1.0]
-        origin_info = {"query": str(origin_facility), "name": "Apple Park (Cupertino)", "coordinates": [37.3346, -122.009]}
-        dhub_info = {"query": str(departure_hub), "name": "Port of Long Beach", "coordinates": [33.7542, -118.2165]}
-        ahub_info = {"query": str(arrival_hub), "name": "Port of Da Nang", "coordinates": [16.1215, 108.223]}
-        dest_info = {"query": str(dest_facility), "name": "Kho Logistics Cáp Kim Khánh Đà Nẵng", "coordinates": [16.0765, 108.151]}
+
+        orig_meta = get_location_details(origin_facility) or {}
+        dhub_meta = get_location_details(departure_hub) or {}
+        ahub_meta = get_location_details(arrival_hub) or {}
+        dest_meta = get_location_details(dest_facility) or {}
+
+        hub_type_str = "Cảng biển" if method_norm == "Ocean" else ("Sân bay" if method_norm == "Air" else "Trạm trung chuyển")
+
+        origin_info = {
+            "query": str(origin_facility),
+            "name": orig_meta.get("name_vi") or orig_meta.get("name") or str(origin_facility),
+            "coordinates": list(get_location_coords(origin_facility) or [0.0, 0.0])
+        }
+        dhub_info = {
+            "query": str(departure_hub),
+            "name": dhub_meta.get("name_vi") or dhub_meta.get("name") or (f"{hub_type_str} xuất phát ({departure_hub})" if departure_hub else "Điểm xuất phát"),
+            "coordinates": list(get_location_coords(departure_hub)) if departure_hub and get_location_coords(departure_hub) else None
+        }
+        ahub_info = {
+            "query": str(arrival_hub),
+            "name": ahub_meta.get("name_vi") or ahub_meta.get("name") or (f"{hub_type_str} đến ({arrival_hub})" if arrival_hub else "Điểm đến"),
+            "coordinates": list(get_location_coords(arrival_hub)) if arrival_hub and get_location_coords(arrival_hub) else None
+        }
+        dest_info = {
+            "query": str(dest_facility),
+            "name": dest_meta.get("name_vi") or dest_meta.get("name") or str(dest_facility),
+            "coordinates": list(get_location_coords(dest_facility) or [0.0, 0.0])
+        }
 
     # 4. Determine Progress, Current Leg & Vehicle State
     check_status = (shipment_doc.status if shipment_doc else status) or "Draft"
 
-    origin_name = origin_info.get("name") or "Kho nhà máy Cupertino"
-    ahub_name = ahub_info.get("name") or "Cảng/Sân bay đến"
-    dest_name = dest_info.get("name") or "Kho Logistics Cáp Kim Khánh Đà Nẵng"
+    hub_type_vi = "Cảng biển" if method_norm == "Ocean" else ("Sân bay" if method_norm == "Air" else "Trạm trung chuyển")
+    origin_name = origin_info.get("name") or str(origin_facility) or "Kho nhà máy xuất phát"
+    dhub_name = dhub_info.get("name") or (f"{hub_type_vi} xuất phát" if departure_hub else "Điểm xuất phát")
+    ahub_name = ahub_info.get("name") or (f"{hub_type_vi} đến" if arrival_hub else "Điểm trung chuyển đến")
+    dest_name = dest_info.get("name") or str(dest_facility) or "Kho đích nhận hàng"
 
     if shipment_doc:
         changed = sync_transit_route_with_status(shipment_doc, ahub_name, dest_name)
@@ -329,8 +418,8 @@ def sync_transit_route_with_status(shipment_doc, ahub_name=None, dest_name=None)
     if not shipment_doc:
         return False
     status = getattr(shipment_doc, "status", None) or "Draft"
-    ahub = ahub_name or getattr(shipment_doc, "destination_port", None) or "Cảng Hải Phòng (Khu bến Đình Vũ / Chùa Vẽ)"
-    dest = dest_name or "Kho bãi Logistics Cáp Kim Khánh Đà Nẵng (Gần ĐH Bách Khoa)"
+    ahub = ahub_name or getattr(shipment_doc, "destination_port", None) or "Cảng / Sân bay nhập khẩu"
+    dest = dest_name or getattr(shipment_doc, "warehouse", None) or "Kho đích nhận hàng"
 
     routes = shipment_doc.get("transit_route") or []
     modified = False
@@ -445,6 +534,8 @@ def generate_fallback_checkpoints(origin_name, dhub_name, ahub_name, dest_name, 
     past_date_2 = str(frappe.utils.add_days(today_str, -10))
     past_date_3 = str(frappe.utils.add_days(today_str, -4))
     
+    hub_type_str = "Cảng biển" if method_norm == "Ocean" else ("Sân bay" if method_norm == "Air" else "Trạm trung chuyển")
+
     cps = [
         {
             "date": past_date_1,
@@ -455,7 +546,7 @@ def generate_fallback_checkpoints(origin_name, dhub_name, ahub_name, dest_name, 
         },
         {
             "date": past_date_2,
-            "activity": f"Xuất phát từ {'Cảng biển' if method_norm == 'Ocean' else 'Sân bay'} xuất khẩu",
+            "activity": f"Xuất phát từ {hub_type_str} xuất khẩu",
             "location": dhub_name,
             "is_current": False,
             "notes": "Phương tiện vận tải rời trạm trung chuyển xuất phát."
@@ -465,8 +556,8 @@ def generate_fallback_checkpoints(origin_name, dhub_name, ahub_name, dest_name, 
     if check_status in ["In Transit", "Customs Clearance", "Completed", "Received", "Closed", "Delivered"]:
         cps.append({
             "date": past_date_3,
-            "activity": f"Hành trình vận chuyển {'trên biển' if method_norm == 'Ocean' else 'đường hàng không'} quốc tế",
-            "location": "Hải phận Quốc tế Thái Bình Dương",
+            "activity": f"Hành trình vận chuyển {'trên biển' if method_norm == 'Ocean' else ('đường hàng không' if method_norm == 'Air' else 'đường bộ')} quốc tế",
+            "location": "Hải phận Quốc tế Thái Bình Dương" if method_norm in ["Ocean", "Air"] else "Tuyến đường bộ nội địa",
             "is_current": (check_status == "In Transit"),
             "notes": "Hành trình ổn định, hệ thống AIS / ADS-B định vị liên tục."
         })
@@ -488,6 +579,11 @@ def generate_fallback_checkpoints(origin_name, dhub_name, ahub_name, dest_name, 
             "is_current": True,
             "notes": "Hàng đã nhập kho đầy đủ và hoàn tất kiểm đếm."
         })
+
+    for cp in cps:
+        if not cp.get("coordinates"):
+            c_coords = get_location_coords(cp["location"])
+            cp["coordinates"] = [c_coords[0], c_coords[1]] if c_coords else None
 
     return cps
 

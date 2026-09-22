@@ -634,7 +634,10 @@ $(document).ready(function () {
                 borderColor = (mainMethod === 'Air') ? '#007AFF' : '#0055B3';
             } else {
                 activeMode = 'Road';
-                activeDesc = 'Chặng 3: Xe tải container giao nhận về Kho Cáp Kim Khánh Đà Nẵng (Last-mile Road)';
+                let targetDestName = (trackingData && trackingData.destination && trackingData.destination.name)
+                    ? trackingData.destination.name
+                    : 'Kho đích nhận hàng';
+                activeDesc = 'Chặng 3: Xe tải container giao nhận về ' + targetDestName + ' (Last-mile Road)';
                 borderColor = '#FF9500';
             }
 
@@ -833,9 +836,9 @@ $(document).ready(function () {
         origMarker.bindPopup(`<b>Kho xuất phát (Origin - Điểm O):</b><br>${originName}<br><small>Toạ độ: ${originCoord[0].toFixed(4)}, ${originCoord[1].toFixed(4)}</small>`);
         mapMarkers.push(origMarker);
 
-        // 6. Destination Marker D (Destination - Kho đích Cáp Kim Khánh, Red Badge)
+        // 6. Destination Marker D (Destination - Kho đích nhận hàng, Red Badge)
         let destCoord = simplifiedCoords[simplifiedCoords.length - 1];
-        let destName = (data.destination && data.destination.name) || (typeof data.destination === 'string' ? data.destination : 'Kho Logistics Cáp Kim Khánh Đà Nẵng');
+        let destName = (data.destination && data.destination.name) || (typeof data.destination === 'string' ? data.destination : 'Kho đích nhận hàng');
         let destIcon = Leaflet.divIcon({
             className: 'custom-dest-icon',
             html: `<div style="background: #dc3545; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; border: 2.5px solid white; box-shadow: 0 3px 8px rgba(0,0,0,0.35); cursor: pointer;" title="Điểm đích đến (Destination - Điểm D)">D</div>`,
