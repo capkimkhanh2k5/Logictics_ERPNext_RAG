@@ -81,6 +81,83 @@ def ensure_master_setup():
         }).insert(ignore_permissions=True)
         frappe.db.commit()
 
+    # 2.1 Bank Accounts (VND & USD)
+    if not frappe.db.exists("Bank", "Vietcombank"):
+        frappe.get_doc({
+            "doctype": "Bank",
+            "bank_name": "Vietcombank",
+            "swift_number": "BFTVVNVX"
+        }).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Bank Account", "Vietcombank VND - CK"):
+        frappe.get_doc({
+            "doctype": "Bank Account",
+            "account_name": "Vietcombank VND - CK",
+            "bank": "Vietcombank",
+            "account": "Vietcombank - CK",
+            "bank_account_no": "0071001234567",
+            "company": company,
+            "is_default": 1
+        }).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Bank Account", "Vietcombank USD - CK"):
+        frappe.get_doc({
+            "doctype": "Bank Account",
+            "account_name": "Vietcombank USD - CK",
+            "bank": "Vietcombank",
+            "account": "USD Bank Account - CK",
+            "bank_account_no": "0071009876543",
+            "company": company,
+            "is_company_account": 1
+        }).insert(ignore_permissions=True)
+
+    # 2.2 Enterprise Payment Terms Template (30% Advance, 70% on Delivery)
+    if not frappe.db.exists("Payment Term", "30% Advance Deposit"):
+        frappe.get_doc({
+            "doctype": "Payment Term",
+            "payment_term_name": "30% Advance Deposit",
+            "invoice_portion": 30.0,
+            "due_date_based_on": "Day(s) after invoice date",
+            "credit_days": 0,
+            "description": "Thanh toán đặt cọc 30% ngay khi ký hợp đồng/phát hành PO"
+        }).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Payment Term", "70% on Delivery"):
+        frappe.get_doc({
+            "doctype": "Payment Term",
+            "payment_term_name": "70% on Delivery",
+            "invoice_portion": 70.0,
+            "due_date_based_on": "Day(s) after invoice date",
+            "credit_days": 30,
+            "description": "Thanh toán 70% còn lại sau khi nhận hàng tại cảng"
+        }).insert(ignore_permissions=True)
+
+    tpl_name = "30% Advance, 70% on Delivery"
+    if not frappe.db.exists("Payment Terms Template", tpl_name):
+        frappe.get_doc({
+            "doctype": "Payment Terms Template",
+            "template_name": tpl_name,
+            "allocate_payment_based_on_payment_terms": 1,
+            "terms": [
+                {
+                    "payment_term": "30% Advance Deposit",
+                    "invoice_portion": 30.0,
+                    "due_date_based_on": "Day(s) after invoice date",
+                    "credit_days": 0,
+                    "description": "Thanh toán đặt cọc 30% ngay khi ký hợp đồng/phát hành PO"
+                },
+                {
+                    "payment_term": "70% on Delivery",
+                    "invoice_portion": 70.0,
+                    "due_date_based_on": "Day(s) after invoice date",
+                    "credit_days": 30,
+                    "description": "Thanh toán 70% còn lại sau khi nhận hàng tại cảng"
+                }
+            ]
+        }).insert(ignore_permissions=True)
+
+    frappe.db.commit()
+
     # 3. Child DocType Transit Route
     if not frappe.db.exists("DocType", "Transit Route"):
         dt_tr = frappe.get_doc({
@@ -136,6 +213,43 @@ def ensure_master_setup():
             ]
         })
         dt_st.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    # 4.1 Client Script for Shipment Tracking
+    cs_script = """
+frappe.ui.form.on('Shipment Tracking', {
+    refresh: function(frm) {
+        if (!frm.is_new()) {
+            frm.add_custom_button(__('Sync AfterShip'), function() {
+                frappe.call({
+                    method: 'logistics_wizard.api.sync_aftership',
+                    args: {
+                        tracking_number: frm.doc.tracking_number || 'TRACK123',
+                        shipment_name: frm.doc.name
+                    },
+                    freeze: true,
+                    freeze_message: __('Đang đồng bộ hành trình từ AfterShip...'),
+                    callback: function(r) {
+                        if (r.message) {
+                            frappe.msgprint(r.message);
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }).addClass('btn-primary');
+        }
+    }
+});
+"""
+    if not frappe.db.exists("Client Script", "Shipment Tracking Sync"):
+        frappe.get_doc({
+            "doctype": "Client Script",
+            "name": "Shipment Tracking Sync",
+            "dt": "Shipment Tracking",
+            "view": "Form",
+            "enabled": 1,
+            "script": cs_script
+        }).insert(ignore_permissions=True)
         frappe.db.commit()
 
     # 5. Custom Fields on Purchase Order

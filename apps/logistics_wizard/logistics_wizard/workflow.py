@@ -16,26 +16,32 @@ WORKFLOW_STEPS = [
     },
     {
         "step": 3,
-        "doctype": "Shipment Tracking",
-        "label": "3. Theo dõi hành trình (Shipment Tracking)",
-        "slug": "shipment-tracking",
+        "doctype": "Payment Entry",
+        "label": "3. Đặt cọc / Tạm ứng (Payment Entry)",
+        "slug": "payment-entry",
     },
     {
         "step": 4,
-        "doctype": "Purchase Receipt",
-        "label": "4. Nhận hàng (Purchase Receipt)",
-        "slug": "purchase-receipt",
+        "doctype": "Shipment Tracking",
+        "label": "4. Theo dõi hành trình (Shipment Tracking)",
+        "slug": "shipment-tracking",
     },
     {
         "step": 5,
-        "doctype": "Landed Cost Voucher",
-        "label": "5. Phân bổ giá vốn (Landed Cost)",
-        "slug": "landed-cost-voucher",
+        "doctype": "Purchase Receipt",
+        "label": "5. Nhận hàng (Purchase Receipt)",
+        "slug": "purchase-receipt",
     },
     {
         "step": 6,
+        "doctype": "Landed Cost Voucher",
+        "label": "6. Phân bổ giá vốn (Landed Cost)",
+        "slug": "landed-cost-voucher",
+    },
+    {
+        "step": 7,
         "doctype": "Stock Entry",
-        "label": "6. Nhập kho (Stock Entry)",
+        "label": "7. Nhập kho (Stock Entry)",
         "slug": "stock-entry",
     },
 ]
@@ -69,6 +75,10 @@ def get_workflow_chain_status(doctype=None, docname=None):
     chain = {s["doctype"]: None for s in WORKFLOW_STEPS}
     if doctype in chain:
         chain[doctype] = docname
+
+    # 0. Traversal from/to Payment Entry
+    if chain.get("Payment Entry") and not chain.get("Purchase Order"):
+        chain["Purchase Order"] = _get_po_from_pe(chain["Payment Entry"])
 
     # 1. Traversal from/to Stock Entry
     if chain["Stock Entry"]:
@@ -110,11 +120,15 @@ def get_workflow_chain_status(doctype=None, docname=None):
     elif not chain["Purchase Receipt"] and chain["Material Request"]:
         chain["Purchase Receipt"] = _get_pr_from_mr(chain["Material Request"])
 
-    # 7. Secondary resolution for Landed Cost Voucher via Purchase Receipt
+    # 7. Secondary resolution for Payment Entry via Purchase Order
+    if not chain.get("Payment Entry") and chain.get("Purchase Order"):
+        chain["Payment Entry"] = _get_pe_from_po(chain["Purchase Order"])
+
+    # 8. Secondary resolution for Landed Cost Voucher via Purchase Receipt
     if not chain["Landed Cost Voucher"] and chain["Purchase Receipt"]:
         chain["Landed Cost Voucher"] = _get_lcv_from_pr(chain["Purchase Receipt"])
 
-    # 8. Secondary resolution for Stock Entry
+    # 9. Secondary resolution for Stock Entry
     if not chain["Stock Entry"]:
         chain["Stock Entry"] = _get_ste_from_chain(
             chain["Purchase Receipt"],
@@ -122,7 +136,7 @@ def get_workflow_chain_status(doctype=None, docname=None):
             chain["Material Request"],
         )
 
-    # 9. Secondary resolution for Shipment Tracking
+    # 10. Secondary resolution for Shipment Tracking
     if not chain["Shipment Tracking"]:
         chain["Shipment Tracking"] = _get_shipment_tracking(
             chain["Purchase Order"], chain["Purchase Receipt"]
@@ -401,6 +415,71 @@ def _get_links_from_st(st_name):
     return st_po, st_pr
 
 
+def _get_pe_from_po(po_name):
+    if not po_name:
+        return None
+    pe = frappe.db.sql("""
+        SELECT parent FROM `tabPayment Entry Reference`
+        WHERE reference_doctype = 'Purchase Order' AND reference_name = %s AND docstatus != 2
+        ORDER BY creation DESC LIMIT 1
+    """, (po_name,))
+    if pe:
+        return pe[0][0]
+
+    # Fallback: check if PO was billed via Purchase Invoice and paid
+    try:
+        pi_names = frappe.db.get_all(
+            "Purchase Invoice Item",
+            filters={"purchase_order": po_name, "docstatus": ["!=", 2]},
+            pluck="parent",
+            distinct=True
+        )
+        if pi_names:
+            pe_row = frappe.db.sql("""
+                SELECT parent FROM `tabPayment Entry Reference`
+                WHERE reference_doctype = 'Purchase Invoice' AND reference_name IN %s AND docstatus != 2
+                ORDER BY creation DESC LIMIT 1
+            """, (tuple(pi_names),))
+            if pe_row:
+                return pe_row[0][0]
+    except Exception:
+        pass
+
+    return None
+
+
+def _get_po_from_pe(pe_name):
+    if not pe_name:
+        return None
+    po = frappe.db.sql("""
+        SELECT reference_name FROM `tabPayment Entry Reference`
+        WHERE parent = %s AND reference_doctype = 'Purchase Order' AND docstatus != 2
+        LIMIT 1
+    """, (pe_name,))
+    if po:
+        return po[0][0]
+
+    # Fallback: check via referenced Purchase Invoice
+    try:
+        pi = frappe.db.sql("""
+            SELECT reference_name FROM `tabPayment Entry Reference`
+            WHERE parent = %s AND reference_doctype = 'Purchase Invoice' AND docstatus != 2
+            LIMIT 1
+        """, (pe_name,))
+        if pi:
+            po_name = frappe.db.get_value(
+                "Purchase Invoice Item",
+                {"parent": pi[0][0], "docstatus": ["!=", 2]},
+                "purchase_order"
+            )
+            if po_name:
+                return po_name
+    except Exception:
+        pass
+
+    return None
+
+
 def _get_doc_status_info(doctype, docname):
     if not frappe.db.exists(doctype, docname):
         return None
@@ -433,6 +512,8 @@ def _get_doc_status_info(doctype, docname):
             completed = status in ["Ordered", "Issued", "Transferred", "Received"]
         elif doctype == "Purchase Order":
             completed = status in ["To Receive and Bill", "To Bill", "To Receive", "Completed", "Closed"]
+        elif doctype == "Payment Entry":
+            completed = True
         elif doctype == "Shipment Tracking":
             completed = status in ["Delivered", "Completed", "Giao hàng thành công", "Received", "Closed"]
         elif doctype in ["Purchase Receipt", "Landed Cost Voucher", "Stock Entry"]:

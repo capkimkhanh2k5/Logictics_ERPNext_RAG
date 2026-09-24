@@ -188,6 +188,7 @@ def get_shipment_tracking(docname: Optional[str] = None,
     check_status = (shipment_doc.status if shipment_doc else status) or "Draft"
 
     origin_name = origin_info.get("name") or "Kho nhà máy Cupertino"
+    dhub_name = dhub_info.get("name") or "Cảng/Sân bay xuất phát"
     ahub_name = ahub_info.get("name") or "Cảng/Sân bay đến"
     dest_name = dest_info.get("name") or "Kho Logistics Cáp Kim Khánh Đà Nẵng"
 
@@ -503,6 +504,49 @@ def on_shipment_tracking_validate(doc, method=None):
         frappe.log_error(f"Error in on_shipment_tracking_validate: {e}", "Logistics Wizard")
 
 
+def validate_purchase_receipt_shipment_status(doc, method=None):
+    """
+    Hook called before Purchase Receipt is submitted.
+    Enforces supply chain risk control: prevents submitting receipt if
+    linked Shipment Tracking is still 'In Transit' or 'Draft' (not yet arrived at destination port).
+    """
+    po_name = None
+    for item in (doc.get("items") or []):
+        if getattr(item, "purchase_order", None) or (isinstance(item, dict) and item.get("purchase_order")):
+            po_name = getattr(item, "purchase_order", None) or item.get("purchase_order")
+            break
+
+    if not po_name:
+        return
+
+    st = frappe.db.get_value(
+        "Shipment Tracking",
+        {"purchase_order": po_name},
+        ["name", "status", "destination_port"],
+        as_dict=True
+    )
+
+    if not st:
+        return
+
+    disallowed_statuses = ["Draft", "In Transit", "Booked", "Departed Origin Port"]
+    if st.status in disallowed_statuses:
+        dest = st.destination_port or "Cảng/Sân bay đến"
+        frappe.throw(
+            f"<b>⛔ KHÔNG THỂ DUYỆT NHẬN HÀNG (PURCHASE RECEIPT):</b><br><br>"
+            f"Lô hàng thuộc Đơn mua hàng <b>{po_name}</b> đang được theo dõi bởi Vận đơn <b>{st.name}</b> "
+            f"có trạng thái hiện tại là <b><span style='color:red'>{st.status}</span></b> (chưa cập bến thực tế).<br><br>"
+            f"Theo nguyên tắc kiểm soát rủi ro logistics, bạn không được duyệt nhận hàng khi container còn đang trên biển / chưa mở kiểm đếm.<br>"
+            f"👉 <i>Vui lòng chuyển trạng thái Vận đơn sang <b>Customs Clearance</b> (hoặc Completed) tại {dest} trước khi Submit!</i>",
+            title="Kiểm soát Vận đơn Logistics"
+        )
+
+    try:
+        frappe.db.set_value("Shipment Tracking", st.name, "purchase_receipt", doc.name)
+    except Exception:
+        pass
+
+
 __all__ = [
     "WORKFLOW_STEPS",
     "get_workflow_chain_status",
@@ -524,4 +568,6 @@ __all__ = [
     "sync_aftership",
     "sync_transit_route_with_status",
     "on_shipment_tracking_validate",
+    "validate_purchase_receipt_shipment_status",
 ]
+

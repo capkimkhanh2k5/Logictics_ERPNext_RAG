@@ -26,5 +26,9 @@ doctype_js = {
 doc_events = {
     "Shipment Tracking": {
         "validate": "logistics_wizard.api.on_shipment_tracking_validate"
+    },
+    "Purchase Receipt": {
+        "before_submit": "logistics_wizard.api.validate_purchase_receipt_shipment_status"
     }
 }
+
