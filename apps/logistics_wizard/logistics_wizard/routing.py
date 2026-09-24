@@ -290,7 +290,51 @@ def get_location_coords(identifier: Union[str, Tuple[float, float], List[float]]
         if k in q or q in k:
             return v
 
+    # Fallback to geocode_location (Nominatim / online geocoding with cache)
+    try:
+        from .GEO_shipTracking import geocode_location
+        geo_pt = geocode_location(str(identifier), "")
+        if geo_pt:
+            return (float(geo_pt[0]), float(geo_pt[1]))
+    except Exception:
+        pass
+
     return None
+
+
+def find_nearest_hub(coords: Union[Tuple[float, float], List[float], str],
+                     hub_type: str = "seaport") -> Optional[str]:
+    """
+    Finds the geographically nearest hub (seaport or airport) in locations.json to given coordinates.
+    hub_type: 'seaport' or 'airport'
+    """
+    if isinstance(coords, str):
+        coords = get_location_coords(coords)
+    if not coords or len(coords) < 2:
+        return None
+    locations = load_locations_data()
+    best_id = None
+    best_dist = float("inf")
+    lat1, lon1 = float(coords[0]), float(coords[1])
+    for loc_id, loc in locations.items():
+        is_match = False
+        l_type = loc.get("type")
+        if l_type == hub_type:
+            is_match = True
+        elif hub_type == "airport" and (loc.get("codes", {}).get("iata") or "airport" in loc.get("name", "").lower()):
+            is_match = True
+        elif hub_type == "seaport" and (loc.get("codes", {}).get("un_locode") or "port" in loc.get("name", "").lower()):
+            is_match = True
+
+        if is_match:
+            c = loc.get("coordinates")
+            if c and "latitude" in c and "longitude" in c:
+                dist = great_circle_distance(lat1, lon1, float(c["latitude"]), float(c["longitude"]))
+                if dist < best_dist:
+                    best_dist = dist
+                    best_id = loc_id
+    return best_id
+
 
 
 # --------------------------------------------------------------------------
@@ -885,11 +929,9 @@ def calculate_multimodal_route(origin_facility: Any,
     elif method_norm in ["Truck", "Inland", "Đường bộ"]:
         method_norm = "Road"
 
-    # Default fallbacks if not provided
-    if not origin_facility:
-        origin_facility = "apple_park_cupertino"
-    if not dest_facility:
-        dest_facility = "cap_khanh_warehouse"
+    # Validate origin and destination facilities
+    if not origin_facility or not dest_facility:
+        raise ValueError("Both origin_facility and dest_facility must be specified for multimodal routing.")
 
     # Check cache
     cache_key = f"lw_multi:{str(origin_facility)[:20]}:{str(departure_hub)[:20]}:{str(arrival_hub)[:20]}:{str(dest_facility)[:20]}:{method_norm}".lower().replace(" ", "_")
@@ -905,6 +947,14 @@ def calculate_multimodal_route(origin_facility: Any,
 
     orig_meta = get_location_details(origin_facility) or {}
     dest_meta = get_location_details(dest_facility) or {}
+
+    # Resolve hubs dynamically for multimodal shipping (Ocean / Air)
+    target_hub_type = "seaport" if method_norm == "Ocean" else "airport"
+    if method_norm != "Road":
+        if not departure_hub:
+            departure_hub = find_nearest_hub(o_coords, target_hub_type)
+        if not arrival_hub:
+            arrival_hub = find_nearest_hub(d_coords, target_hub_type)
 
     # Case A: Pure Road / Inland route (Edge Case 1)
     if method_norm == "Road" or (not departure_hub and not arrival_hub):
@@ -955,10 +1005,6 @@ def calculate_multimodal_route(origin_facility: Any,
         return result
 
     # Case B: 3-Leg Door-to-Door Multimodal Route (First-mile + Main-haul + Last-mile)
-    if not departure_hub:
-        departure_hub = "port_of_long_beach" if method_norm == "Ocean" else "san_francisco_airport"
-    if not arrival_hub:
-        arrival_hub = "da_nang_port" if method_norm == "Ocean" else "da_nang_airport"
 
     dhub_coords = get_location_coords(departure_hub)
     ahub_coords = get_location_coords(arrival_hub)
